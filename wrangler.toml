@@ -1,3 +1,8 @@
 name = "lg-harris"
 compatibility_date = "2026-03-10"
 pages_build_output_dir = "dist"
+
+[[r2_buckets]]
+binding = "CATALOGUE_BUCKET"
+bucket_name = "lgharris-catalogue"
+preview_bucket_name = "lgharris-catalogue-preview"
