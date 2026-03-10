@@ -29,6 +29,12 @@ const MAX_POLL_BACKOFF_MS = 120000;
 const SESSION_COOKIE_KEY = 'lg_harris_session';
 const SESSION_QUERY_KEY = 'session';
 const SESSION_ID_PATTERN = /^[a-zA-Z0-9-]{8,}$/;
+const CATALOGUE_FOOTER_REFERENCE_NOTE =
+  '* Prices are for customer reference and remain subject to stock and approval.';
+const CATALOGUE_FOOTER_MINIMUM_NOTE =
+  'Minimum order: 2 cases to be eligible for the quoted price.';
+const CATALOGUE_FOOTER_EXCLUSIONS =
+  'Excludes: Stax, Decco, Fortis, H&B, IBC, IBMG, NBG, Trago Mills, Home Hardware.';
 const EMPTY_PRODUCT = Object.freeze({
   brand: '',
   code: '',
@@ -677,8 +683,9 @@ function CatalogPoster({ products, mode = 'preview', posterRef = null }) {
       </section>
 
       <footer className="poster-footer">
-        <p>* Prices are for customer reference and remain subject to stock and approval.</p>
-        <p>Excludes: Stax, Decco, Fortis, H&amp;B, IBC, IBMG, NBG, Trago Mills, Home Hardware.</p>
+        <p>{CATALOGUE_FOOTER_REFERENCE_NOTE}</p>
+        <p>{CATALOGUE_FOOTER_MINIMUM_NOTE}</p>
+        <p>{CATALOGUE_FOOTER_EXCLUSIONS}</p>
       </footer>
     </div>
   );
@@ -1499,19 +1506,16 @@ export default function App() {
       pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(6.3);
       pdf.text(
-        '* Prices are for customer reference and remain subject to stock and approval.',
+        CATALOGUE_FOOTER_REFERENCE_NOTE,
         pageWidth / 2,
-        286.2,
+        284.1,
         { align: 'center' },
       );
+      pdf.setFontSize(6.2);
+      pdf.text(CATALOGUE_FOOTER_MINIMUM_NOTE, pageWidth / 2, 287.4, { align: 'center' });
       pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(6);
-      pdf.text(
-        'Excludes: Stax, Decco, Fortis, H&B, IBC, IBMG, NBG, Trago Mills, Home Hardware.',
-        pageWidth / 2,
-        290,
-        { align: 'center' },
-      );
+      pdf.setFontSize(5.8);
+      pdf.text(CATALOGUE_FOOTER_EXCLUSIONS, pageWidth / 2, 290.7, { align: 'center' });
 
       pdf.save(`lg-harris-catalogue-${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch (error) {
