@@ -28,13 +28,12 @@ npm run dev:full
 1. Create two R2 buckets in Cloudflare:
 - `lg-harris-catalogue`
 - `lg-harris-catalogue-preview`
-2. If you use different names, update [wrangler.toml](/Users/just5/Documents/New%20project/LG_Harris/wrangler.toml).
-3. Create a Cloudflare Pages project from this GitHub repository.
-4. Keep the project name as `lg-harris` (or update `deploy:cf` in [package.json](/Users/just5/Documents/New%20project/LG_Harris/package.json)).
-5. Use these build settings in Pages:
+2. Create a Cloudflare Pages project from this GitHub repository.
+3. Keep the project name as `lg-harris` (or update `deploy:cf` in [package.json](/Users/just5/Documents/New%20project/LG_Harris/package.json)).
+4. Use these build settings in Pages:
 - Build command: `npm run build`
 - Build output directory: `dist`
-6. Add an R2 binding in Pages settings:
+5. Add an R2 binding in Pages settings:
 - Variable name: `CATALOGUE_BUCKET`
 - Bucket: your production bucket
 
