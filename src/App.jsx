@@ -330,239 +330,21 @@ async function compressImageFile(file, { maxEdge = 1600, quality = 0.82 } = {}) 
   return canvas.toDataURL('image/jpeg', quality);
 }
 
-function truncatePdfLines(doc, text, maxWidth, maxLines) {
-  const lines = doc.splitTextToSize(text || '', maxWidth);
-  if (lines.length <= maxLines) {
-    return lines;
-  }
-
-  const truncated = lines.slice(0, maxLines);
-  let lastLine = truncated[maxLines - 1];
-  const ellipsis = '...';
-
-  while (lastLine && doc.getTextWidth(`${lastLine}${ellipsis}`) > maxWidth) {
-    lastLine = lastLine.slice(0, -1).trimEnd();
-  }
-
-  truncated[maxLines - 1] = `${lastLine}${ellipsis}`;
-  return truncated;
-}
-
-function fitImageWithinBox(sourceWidth, sourceHeight, boxWidth, boxHeight) {
-  if (!sourceWidth || !sourceHeight) {
-    return { width: 0, height: 0, offsetX: 0, offsetY: 0 };
-  }
-
-  const scale = Math.min(boxWidth / sourceWidth, boxHeight / sourceHeight);
-  const width = sourceWidth * scale;
-  const height = sourceHeight * scale;
-
-  return {
-    width,
-    height,
-    offsetX: (boxWidth - width) / 2,
-    offsetY: (boxHeight - height) / 2,
-  };
-}
-
-async function convertBlobToDataUrl(blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
-    reader.onerror = () => reject(new Error('That image could not be prepared for PDF export.'));
-    reader.readAsDataURL(blob);
-  });
-}
-
-async function createPdfImageAsset(imageSource) {
-  if (!imageSource) {
-    return null;
-  }
-
-  let dataUrl = imageSource;
-
-  if (!imageSource.startsWith('data:')) {
-    const response = await fetch(imageSource, { cache: 'no-store' });
-    if (!response.ok) {
-        throw new Error('A product image could not be loaded for PDF export.');
-    }
-
-    const blob = await response.blob();
-    dataUrl = await convertBlobToDataUrl(blob);
-  }
-
-  const image = await loadImage(dataUrl);
-  const longestEdge = Math.max(image.naturalWidth, image.naturalHeight) || 1;
-  const scale = Math.min(1, 1800 / longestEdge);
-  const width = Math.max(1, Math.round(image.naturalWidth * scale));
-  const height = Math.max(1, Math.round(image.naturalHeight * scale));
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-
-  const context = canvas.getContext('2d');
-  if (!context) {
-    throw new Error('This browser cannot prepare PDF export images.');
-  }
-
-  context.drawImage(image, 0, 0, width, height);
-
-  return {
-    dataUrl: canvas.toDataURL('image/png'),
-    width,
-    height,
-  };
-}
-
-async function buildPdfImageAssetMap(products) {
-  const uniqueSources = [...new Set(products.map((product) => product.image).filter(Boolean))];
-  const assetEntries = await Promise.all(
-    uniqueSources.map(async (source) => {
-      try {
-        return [source, await createPdfImageAsset(source)];
-      } catch (error) {
-        console.warn('Skipping image in PDF export', source, error);
-        return [source, null];
+async function waitForElementImages(element) {
+  const images = Array.from(element.querySelectorAll('img'));
+  await Promise.all(
+    images.map((image) => {
+      if (image.complete) {
+        return Promise.resolve();
       }
+
+      return new Promise((resolve) => {
+        const done = () => resolve();
+        image.addEventListener('load', done, { once: true });
+        image.addEventListener('error', done, { once: true });
+      });
     }),
   );
-
-  return new Map(assetEntries);
-}
-
-function drawPdfPill(doc, { x, y, width, height, fillColor, textColor, text, fontSize = 7 }) {
-  doc.setFillColor(...fillColor);
-  doc.roundedRect(x, y, width, height, height / 2, height / 2, 'F');
-  doc.setTextColor(...textColor);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(fontSize);
-  doc.text(text, x + width / 2, y + height * 0.64, { align: 'center' });
-}
-
-function drawPdfWrappedCenteredText(doc, text, centerX, startY, maxWidth, lineHeight) {
-  const lines = doc.splitTextToSize(text, maxWidth);
-  lines.forEach((line, index) => {
-    doc.text(line, centerX, startY + lineHeight * index, { align: 'center' });
-  });
-  return startY + lineHeight * lines.length;
-}
-
-function drawPosterCardPdf(doc, product, assetMap, x, y, width, height) {
-  const savings = getSavings(product);
-  const palette = {
-    cardBorder: [220, 212, 201],
-    cardFill: [255, 255, 255],
-    accent: [217, 82, 50],
-    surface: [247, 242, 234],
-    brand: [20, 78, 146],
-    code: [112, 101, 89],
-    body: [32, 29, 25],
-    muted: [124, 112, 99],
-    deal: [204, 76, 46],
-  };
-  const sidePadding = 2;
-  const left = x + sidePadding;
-  const right = x + width - sidePadding;
-  const mediaX = x + 1.2;
-  const mediaY = y + 1.2;
-  const mediaWidth = width - 2.4;
-  const mediaHeight = 17;
-  const metaY = mediaY + mediaHeight + 3.5;
-  const descriptionY = metaY + 4.7;
-  const pricingBoxY = y + height - 13.8;
-  const pricingBoxHeight = 12.4;
-
-  doc.setFillColor(...palette.cardFill);
-  doc.setDrawColor(...palette.cardBorder);
-  doc.roundedRect(x, y, width, height, 2.2, 2.2, 'FD');
-
-  doc.setFillColor(...palette.accent);
-  doc.roundedRect(x + 1.2, y + 1.2, 18, 1.25, 0.6, 0.6, 'F');
-
-  doc.setFillColor(...palette.surface);
-  doc.roundedRect(mediaX, mediaY + 1.1, mediaWidth, mediaHeight, 0.9, 0.9, 'F');
-
-  const asset = assetMap.get(product.image) ?? null;
-  if (asset) {
-    const imageBox = fitImageWithinBox(asset.width, asset.height, mediaWidth - 1.4, mediaHeight - 1.4);
-    doc.addImage(
-      asset.dataUrl,
-      'PNG',
-      mediaX + 0.7 + imageBox.offsetX,
-      mediaY + 1.8 + imageBox.offsetY,
-      imageBox.width,
-      imageBox.height,
-    );
-  } else {
-    doc.setTextColor(165, 152, 136);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(6.2);
-    doc.text('Image pending', x + width / 2, mediaY + 10.8, { align: 'center' });
-  }
-
-  if (savings) {
-    drawPdfPill(doc, {
-      x: x + width - 13.8,
-      y: y + 1.2,
-      width: 12.6,
-      height: 4.2,
-      fillColor: palette.accent,
-      textColor: [255, 255, 255],
-      text: `${savings.percent}% off`,
-      fontSize: 5,
-    });
-  }
-
-  doc.setTextColor(...palette.brand);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5.8);
-  const brandLabel = truncatePdfLines(doc, (product.brand || 'Brand').toUpperCase(), width * 0.58, 1)[0];
-  doc.text(brandLabel, left, metaY);
-
-  doc.setTextColor(...palette.code);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5.2);
-  const codeLabel = truncatePdfLines(doc, (product.code || 'Code').toUpperCase(), width * 0.36, 1)[0];
-  doc.text(codeLabel, right, metaY, { align: 'right' });
-
-  doc.setTextColor(...palette.body);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.4);
-  doc.setLineHeightFactor(1.14);
-  const descriptionLines = truncatePdfLines(doc, product.desc || '', width - sidePadding * 2, 2);
-  doc.text(descriptionLines, left, descriptionY);
-
-  doc.setFillColor(252, 247, 241);
-  doc.roundedRect(x + 1.2, pricingBoxY, width - 2.4, pricingBoxHeight, 1.2, 1.2, 'F');
-  doc.setDrawColor(231, 224, 213);
-  doc.setLineWidth(0.2);
-  doc.line(left, pricingBoxY + 3.6, right, pricingBoxY + 3.6);
-
-  doc.setTextColor(...palette.muted);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(4.9);
-  doc.text('TRADE PRICE', left, pricingBoxY + 2.4);
-
-  doc.setTextColor(...palette.deal);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(12.7);
-  doc.text(product.deal || '', left, y + height - 2.2);
-
-  if (product.list) {
-    doc.setTextColor(...palette.muted);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(4.9);
-    doc.text('LIST', right, pricingBoxY + 2.4, { align: 'right' });
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.2);
-    const listY = y + height - 2.6;
-    doc.text(product.list, right, listY, { align: 'right' });
-    const listWidth = doc.getTextWidth(product.list);
-    doc.setLineWidth(0.2);
-    doc.setDrawColor(...palette.muted);
-    doc.line(right - listWidth, listY - 0.95, right, listY - 0.95);
-  }
 }
 
 function StatCard({ label, value, hint, tone = 'default' }) {
@@ -1463,7 +1245,7 @@ export default function App() {
   }
 
   async function handleDownloadPDF() {
-    if (previewProducts.length === 0 || isGenerating) {
+    if (previewProducts.length === 0 || isGenerating || !posterRef.current) {
       return;
     }
 
@@ -1471,8 +1253,33 @@ export default function App() {
     setExportError('');
 
     try {
-      const [{ jsPDF }] = await Promise.all([import('jspdf')]);
-      const imageAssetMap = await buildPdfImageAssetMap(previewProducts);
+      const [html2canvasModule, { jsPDF }] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf'),
+      ]);
+      const html2canvas = html2canvasModule.default;
+      const posterNode = posterRef.current;
+
+      if (!posterNode) {
+        throw new Error('A printable poster preview is not ready yet.');
+      }
+
+      if (document.fonts?.ready) {
+        await document.fonts.ready;
+      }
+      await waitForElementImages(posterNode);
+
+      const canvas = await html2canvas(posterNode, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#f4efe6',
+        windowWidth: posterNode.scrollWidth,
+        windowHeight: posterNode.scrollHeight,
+      });
+
+      const pageWidth = 210;
+      const pageHeight = 297;
       const pdf = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -1480,161 +1287,8 @@ export default function App() {
         compress: true,
       });
 
-      const pageWidth = 210;
-      const pageHeight = 297;
-      const marginX = 8;
-      const marginTop = 8;
-      const columnGap = 3.2;
-      const rowGap = 2.8;
-      const columns = 3;
-      const rows = Math.max(1, Math.ceil(previewProducts.length / columns));
-      const heroX = marginX;
-      const heroY = marginTop;
-      const heroWidth = pageWidth - marginX * 2;
-      const heroHeight = 43;
-      const gridStartY = heroY + heroHeight + 4.8;
-      const footerHeight = 19.5;
-      const footerTop = pageHeight - marginTop - footerHeight;
-      const cardWidth = (pageWidth - marginX * 2 - columnGap * (columns - 1)) / columns;
-      const cardHeight = (footerTop - gridStartY - rowGap * (rows - 1)) / rows;
-      const bestSavingsPercent = previewProducts.reduce((highest, product) => {
-        const savings = getSavings(product);
-        return savings ? Math.max(highest, savings.percent) : highest;
-      }, 0);
-      const exportDate = new Date().toLocaleDateString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      });
-
-      pdf.setFillColor(246, 242, 235);
-      pdf.rect(0, 0, pageWidth, pageHeight, 'F');
-
-      pdf.setFillColor(27, 34, 44);
-      pdf.roundedRect(heroX, heroY, heroWidth, heroHeight, 4, 4, 'F');
-
-      pdf.setFillColor(217, 82, 50);
-      pdf.roundedRect(heroX + 4, heroY + 33.6, 84, 5.3, 2.6, 2.6, 'F');
-
-      pdf.setTextColor(236, 109, 75);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(7.5);
-      pdf.text('LG HARRIS | CUSTOMER CATALOGUE', heroX + 4, heroY + 6.4);
-
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFontSize(18.8);
-      pdf.text('Premium Dust Sheets', heroX + 4, heroY + 16.3);
-      pdf.text('& Tarpaulins', heroX + 4, heroY + 25.2);
-
-      pdf.setTextColor(221, 214, 204);
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(7.4);
-      pdf.text(
-        'Prepared by LG Harris for customer reference and sales conversations',
-        heroX + 4,
-        heroY + 30.2,
-      );
-
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(7);
-      pdf.text('Trade prices in pounds sterling', heroX + 8, heroY + 37.2);
-
-      const insightWidth = 58;
-      const insightHeight = 29;
-      const insightX = heroX + heroWidth - insightWidth - 4;
-      const insightY = heroY + 7;
-      pdf.setFillColor(246, 241, 233);
-      pdf.roundedRect(insightX, insightY, insightWidth, insightHeight, 2.5, 2.5, 'F');
-
-      pdf.setTextColor(108, 96, 84);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(5.7);
-      pdf.text('Current trade snapshot', insightX + 3.2, insightY + 4.6);
-
-      if (bestSavingsPercent > 0) {
-        pdf.setTextColor(208, 76, 45);
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(16);
-        pdf.text(`${bestSavingsPercent}%`, insightX + 3.2, insightY + 12.2);
-        pdf.setTextColor(113, 101, 90);
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(5.7);
-        pdf.text('Best saving versus list', insightX + 3.2, insightY + 16.2);
-      } else {
-        pdf.setTextColor(64, 56, 48);
-        pdf.setFont('helvetica', 'bold');
-        pdf.setFontSize(9.5);
-        pdf.text('Live pricing', insightX + 3.2, insightY + 11.8);
-        pdf.setTextColor(113, 101, 90);
-        pdf.setFont('helvetica', 'normal');
-        pdf.setFontSize(5.7);
-        pdf.text('Based on current trade data', insightX + 3.2, insightY + 15.8);
-      }
-
-      pdf.setTextColor(64, 56, 48);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(6.4);
-      pdf.text(`${previewProducts.length} products`, insightX + 3.2, insightY + 21);
-
-      pdf.setTextColor(122, 112, 101);
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(5.4);
-      pdf.text(exportDate, insightX + 3.2, insightY + 24.6);
-
-      pdf.setDrawColor(223, 216, 206);
-      pdf.setLineWidth(0.45);
-      pdf.line(marginX, gridStartY - 2.3, pageWidth - marginX, gridStartY - 2.3);
-
-      previewProducts.forEach((product, index) => {
-        const column = index % columns;
-        const row = Math.floor(index / columns);
-        const x = marginX + column * (cardWidth + columnGap);
-        const y = gridStartY + row * (cardHeight + rowGap);
-
-        drawPosterCardPdf(pdf, product, imageAssetMap, x, y, cardWidth, cardHeight);
-      });
-
-      pdf.setFillColor(241, 236, 228);
-      pdf.roundedRect(marginX, footerTop + 1.8, pageWidth - marginX * 2, footerHeight - 3.3, 2.5, 2.5, 'F');
-      pdf.setDrawColor(205, 196, 184);
-      pdf.setLineWidth(0.3);
-      pdf.line(marginX, footerTop, pageWidth - marginX, footerTop);
-
-      let footerCursor = footerTop + 6;
-      const footerTextWidth = pageWidth - marginX * 2 - 7;
-      pdf.setTextColor(118, 107, 95);
-      pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(5.6);
-      footerCursor = drawPdfWrappedCenteredText(
-        pdf,
-        CATALOGUE_FOOTER_REFERENCE_NOTE,
-        pageWidth / 2,
-        footerCursor,
-        footerTextWidth,
-        2.65,
-      );
-      footerCursor += 0.9;
-      pdf.setFontSize(5.6);
-      footerCursor = drawPdfWrappedCenteredText(
-        pdf,
-        CATALOGUE_FOOTER_MINIMUM_NOTE,
-        pageWidth / 2,
-        footerCursor,
-        footerTextWidth,
-        2.65,
-      );
-      footerCursor += 0.9;
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(5.15);
-      drawPdfWrappedCenteredText(
-        pdf,
-        CATALOGUE_FOOTER_EXCLUSIONS,
-        pageWidth / 2,
-        footerCursor,
-        footerTextWidth,
-        2.45,
-      );
+      const imageData = canvas.toDataURL('image/png');
+      pdf.addImage(imageData, 'PNG', 0, 0, pageWidth, pageHeight, undefined, 'FAST');
 
       pdf.save(`lg-harris-catalogue-${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch (error) {
@@ -2026,7 +1680,7 @@ export default function App() {
             ) : null}
 
             <div className="poster-stage">
-              <CatalogPoster products={previewProducts} posterRef={posterRef} />
+              <CatalogPoster products={previewProducts} mode="export" posterRef={posterRef} />
             </div>
 
             {exportError ? <p className="status-error no-print">{exportError}</p> : null}
