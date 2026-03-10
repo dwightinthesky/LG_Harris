@@ -28,7 +28,7 @@ const HIDDEN_POLL_INTERVAL_MS = 60000;
 const MAX_POLL_BACKOFF_MS = 120000;
 const SESSION_COOKIE_KEY = 'lg_harris_session';
 const SESSION_QUERY_KEY = 'session';
-const DEFAULT_SHARED_SESSION_ID = 'lg-harris-main';
+const DEFAULT_SHARED_SESSION_ID = '979ac24e-e051-4ab5-9771-6bd8e7381c47';
 const SESSION_ID_PATTERN = /^[a-zA-Z0-9-]{8,}$/;
 const CATALOGUE_FOOTER_REFERENCE_NOTE =
   '* Prices are for customer reference and remain subject to stock and approval.';
