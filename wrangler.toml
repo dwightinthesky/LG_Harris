@@ -4,5 +4,5 @@ pages_build_output_dir = "dist"
 
 [[r2_buckets]]
 binding = "CATALOGUE_BUCKET"
-bucket_name = "lg-harris-catalogue"
-preview_bucket_name = "lg-harris-catalogue-preview"
+bucket_name = "lgharris-catalogue"
+preview_bucket_name = "lgharris-catalogue-preview"
