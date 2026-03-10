@@ -447,107 +447,130 @@ function drawPdfPill(doc, { x, y, width, height, fillColor, textColor, text, fon
 
 function drawPosterCardPdf(doc, product, assetMap, x, y, width, height) {
   const savings = getSavings(product);
-  const borderColor = [226, 220, 210];
-  const mutedColor = [127, 116, 104];
-  const priceColor = [195, 71, 47];
-  const inkColor = [34, 29, 26];
-  const mediaHeight = 16.6;
-  const pricingTop = y + height - 14.8;
-  const bodyX = x + 1.8;
-  const bodyWidth = width - 3.6;
+  const palette = {
+    cardBorder: [223, 216, 206],
+    surface: [255, 255, 255],
+    imagePanel: [247, 243, 236],
+    placeholder: [163, 151, 136],
+    title: [32, 29, 26],
+    muted: [126, 114, 101],
+    brand: [18, 79, 152],
+    code: [109, 99, 89],
+    priceBand: [253, 247, 240],
+    priceAccent: [208, 76, 45],
+  };
+  const paddingX = 2.2;
+  const mediaX = x + 1.6;
+  const mediaY = y + 1.6;
+  const mediaWidth = width - 3.2;
+  const mediaHeight = 15.6;
+  const left = x + paddingX;
+  const right = x + width - paddingX;
+  const metaY = mediaY + mediaHeight + 4;
+  const descriptionY = metaY + 5.1;
+  const priceBandHeight = 12.6;
+  const priceBandY = y + height - priceBandHeight;
 
-  doc.setDrawColor(...borderColor);
-  doc.setFillColor(255, 255, 255);
-  doc.roundedRect(x, y, width, height, 3.5, 3.5, 'FD');
+  doc.setDrawColor(...palette.cardBorder);
+  doc.setFillColor(...palette.surface);
+  doc.roundedRect(x, y, width, height, 2.8, 2.8, 'FD');
 
-  doc.setFillColor(248, 244, 237);
-  doc.roundedRect(x + 1.4, y + 1.4, width - 2.8, mediaHeight, 0.8, 0.8, 'F');
+  doc.setFillColor(...palette.imagePanel);
+  doc.roundedRect(mediaX, mediaY, mediaWidth, mediaHeight, 1.4, 1.4, 'F');
 
   const asset = assetMap.get(product.image) ?? null;
   if (asset) {
-    const imageBox = fitImageWithinBox(asset.width, asset.height, width - 6.2, mediaHeight - 2.8);
+    const imageBox = fitImageWithinBox(asset.width, asset.height, mediaWidth - 1.2, mediaHeight - 1.2);
     doc.addImage(
       asset.dataUrl,
       'PNG',
-      x + 3.1 + imageBox.offsetX,
-      y + 2.8 + imageBox.offsetY,
+      mediaX + 0.6 + imageBox.offsetX,
+      mediaY + 0.6 + imageBox.offsetY,
       imageBox.width,
       imageBox.height,
     );
   } else {
-    doc.setTextColor(168, 155, 139);
+    doc.setTextColor(...palette.placeholder);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-      doc.text('Image pending', x + width / 2, y + 11.5, { align: 'center' });
+    doc.setFontSize(6.8);
+    doc.text('Image pending', x + width / 2, mediaY + mediaHeight / 2 + 1.1, { align: 'center' });
   }
 
   if (savings) {
     drawPdfPill(doc, {
-      x: x + width - 11.8,
-      y: y + 1.4,
-      width: 10.1,
-      height: 5.2,
-      fillColor: priceColor,
+      x: x + width - 15.6,
+      y: y + 1.6,
+      width: 13.4,
+      height: 4.7,
+      fillColor: palette.priceAccent,
       textColor: [255, 255, 255],
-      text: `Save ${savings.percent}%`,
-      fontSize: 5.5,
+      text: `${savings.percent}% off`,
+      fontSize: 5.4,
     });
   }
 
-  drawPdfPill(doc, {
-    x: bodyX,
-    y: y + mediaHeight + 4.6,
-    width: 12.8,
-    height: 5,
-    fillColor: [233, 241, 254],
-    textColor: [23, 70, 132],
-    text: product.brand || 'Brand',
-    fontSize: 5.4,
-  });
-
-  drawPdfPill(doc, {
-    x: x + width - 12,
-    y: y + mediaHeight + 4.6,
-    width: 10.2,
-    height: 5,
-    fillColor: [243, 239, 232],
-    textColor: [111, 100, 88],
-    text: product.code || 'Code',
-    fontSize: 5,
-  });
-
-  doc.setTextColor(...inkColor);
+  doc.setTextColor(...palette.brand);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.5);
-  doc.setLineHeightFactor(1.1);
-  const descriptionLines = truncatePdfLines(doc, product.desc, bodyWidth, 3);
-  doc.text(descriptionLines, bodyX, y + mediaHeight + 12.3);
+  doc.setFontSize(6.1);
+  const brandText = truncatePdfLines(
+    doc,
+    (product.brand || 'Brand').toUpperCase(),
+    width * 0.56,
+    1,
+  )[0];
+  doc.text(brandText, left, metaY);
 
-  doc.setDrawColor(233, 227, 218);
-  doc.line(bodyX, pricingTop - 2.2, x + width - 1.8, pricingTop - 2.2);
+  doc.setTextColor(...palette.code);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(5.9);
+  const codeText = truncatePdfLines(
+    doc,
+    (product.code || 'Code').toUpperCase(),
+    width * 0.4,
+    1,
+  )[0];
+  doc.text(codeText, right, metaY, { align: 'right' });
 
-  doc.setTextColor(...mutedColor);
+  doc.setTextColor(...palette.title);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(5.5);
-  doc.text('DEAL PRICE', bodyX, pricingTop + 0.4);
+  doc.setFontSize(8.8);
+  doc.setLineHeightFactor(1.13);
+  const descriptionLines = truncatePdfLines(doc, product.desc, width - paddingX * 2, 3);
+  doc.text(descriptionLines, left, descriptionY);
 
-  doc.setTextColor(...priceColor);
+  doc.setFillColor(...palette.priceBand);
+  doc.rect(x + 0.45, priceBandY, width - 0.9, priceBandHeight - 0.45, 'F');
+  doc.setDrawColor(...palette.cardBorder);
+  doc.setLineWidth(0.22);
+  doc.line(left, priceBandY + 0.7, right, priceBandY + 0.7);
+
+  doc.setFillColor(...palette.priceAccent);
+  doc.roundedRect(left, priceBandY + 2.1, 1.1, priceBandHeight - 4.1, 0.5, 0.5, 'F');
+
+  doc.setTextColor(...palette.muted);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(15.5);
-  doc.text(product.deal || '', bodyX, y + height - 2.6);
+  doc.setFontSize(5.2);
+  doc.text('TRADE', left + 1.9, priceBandY + 3.9);
+
+  doc.setTextColor(...palette.priceAccent);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14.2);
+  doc.text(product.deal || '', left + 1.9, y + height - 2.9);
 
   if (product.list) {
-    doc.setTextColor(...mutedColor);
+    doc.setTextColor(...palette.muted);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(5.5);
-    doc.text('LIST', x + width - 1.8, pricingTop + 0.4, { align: 'right' });
+    doc.setFontSize(5.2);
+    doc.text('LIST', right, priceBandY + 3.9, { align: 'right' });
 
-    doc.setFontSize(10);
-    const listY = y + height - 4.1;
-    doc.text(product.list, x + width - 1.8, listY, { align: 'right' });
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.3);
+    const listY = y + height - 3.5;
+    doc.text(product.list, right, listY, { align: 'right' });
     const listWidth = doc.getTextWidth(product.list);
-    doc.setLineWidth(0.25);
-    doc.line(x + width - 1.8 - listWidth, listY - 1.3, x + width - 1.8, listY - 1.3);
+    doc.setLineWidth(0.22);
+    doc.setDrawColor(...palette.muted);
+    doc.line(right - listWidth, listY - 1.2, right, listY - 1.2);
   }
 }
 
@@ -1467,55 +1490,90 @@ export default function App() {
 
       const pageWidth = 210;
       const pageHeight = 297;
-      const marginX = 10;
-      const marginTop = 10;
-      const columnGap = 3;
-      const rowGap = 3.2;
+      const marginX = 8.5;
+      const marginTop = 8;
+      const columnGap = 3.2;
+      const rowGap = 3.1;
       const columns = 3;
       const rows = 4;
+      const heroX = marginX;
+      const heroY = marginTop;
+      const heroWidth = pageWidth - marginX * 2;
+      const heroHeight = 36;
+      const gridStartY = heroY + heroHeight + 7.6;
+      const footerTop = pageHeight - 17.5;
       const cardWidth = (pageWidth - marginX * 2 - columnGap * (columns - 1)) / columns;
-      const gridStartY = 50;
-      const footerY = 286.5;
-      const cardHeight = (footerY - gridStartY - rowGap * (rows - 1)) / rows;
+      const cardHeight = (footerTop - gridStartY - rowGap * (rows - 1)) / rows;
+      const bestSavingsPercent = previewProducts.reduce((highest, product) => {
+        const savings = getSavings(product);
+        return savings ? Math.max(highest, savings.percent) : highest;
+      }, 0);
 
-      pdf.setFillColor(252, 250, 245);
+      pdf.setFillColor(247, 244, 238);
       pdf.rect(0, 0, pageWidth, pageHeight, 'F');
 
-      pdf.setTextColor(195, 71, 47);
+      pdf.setFillColor(28, 30, 34);
+      pdf.roundedRect(heroX, heroY, heroWidth, heroHeight, 4.2, 4.2, 'F');
+
+      pdf.setTextColor(237, 107, 70);
       pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(7.1);
+      pdf.text('LG HARRIS TRADE CATALOGUE', heroX + 4, heroY + 5.8);
+
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(18.2);
+      pdf.text('Premium Dust Sheets', heroX + 4, heroY + 15.4);
+      pdf.text('and Tarpaulins', heroX + 4, heroY + 24.2);
+
+      pdf.setTextColor(217, 210, 199);
+      pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(7.2);
-      pdf.text('LG HARRIS CUSTOMER CATALOGUE', pageWidth / 2, marginTop + 2.5, { align: 'center' });
-
-      pdf.setTextColor(34, 29, 26);
-      pdf.setFontSize(28);
-      pdf.text('PREMIUM DUST SHEETS AND TARPAULINS', pageWidth / 2, 21.5, {
-        align: 'center',
-      });
-
-      pdf.setTextColor(99, 88, 76);
-      pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(8.5);
       pdf.text(
         'Prepared by LG Harris for customer reference and sales conversations',
-        pageWidth / 2,
-        27.8,
-        { align: 'center' },
+        heroX + 4,
+        heroY + 31.2,
       );
 
-      drawPdfPill(pdf, {
-        x: 70.5,
-        y: 31.3,
-        width: 69,
-        height: 8.3,
-        fillColor: [195, 71, 47],
-        textColor: [255, 255, 255],
-        text: 'Current trade prices across trusted brands',
-        fontSize: 8.3,
-      });
+      const insightWidth = 56;
+      const insightHeight = 23.8;
+      const insightX = heroX + heroWidth - insightWidth - 4;
+      const insightY = heroY + 6;
+      pdf.setFillColor(247, 243, 236);
+      pdf.roundedRect(insightX, insightY, insightWidth, insightHeight, 3, 3, 'F');
 
-      pdf.setDrawColor(195, 71, 47);
-      pdf.setLineWidth(1.2);
-      pdf.line(marginX, 46.2, pageWidth - marginX, 46.2);
+      pdf.setTextColor(108, 94, 82);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(5.9);
+      pdf.text('Current trade snapshot', insightX + 3.6, insightY + 4.9);
+
+      if (bestSavingsPercent > 0) {
+        pdf.setTextColor(208, 76, 45);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(16.2);
+        pdf.text(`${bestSavingsPercent}%`, insightX + 3.6, insightY + 12.8);
+        pdf.setTextColor(113, 101, 90);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(6.1);
+        pdf.text('Best saving vs list price', insightX + 3.6, insightY + 16.8);
+      } else {
+        pdf.setTextColor(64, 56, 48);
+        pdf.setFont('helvetica', 'bold');
+        pdf.setFontSize(10.4);
+        pdf.text('Live pricing', insightX + 3.6, insightY + 12.6);
+        pdf.setTextColor(113, 101, 90);
+        pdf.setFont('helvetica', 'normal');
+        pdf.setFontSize(6.1);
+        pdf.text('Based on current trade data', insightX + 3.6, insightY + 16.8);
+      }
+
+      pdf.setTextColor(64, 56, 48);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(6.8);
+      pdf.text(`${previewProducts.length} products on this page`, insightX + 3.6, insightY + 21.2);
+
+      pdf.setDrawColor(223, 216, 206);
+      pdf.setLineWidth(0.5);
+      pdf.line(marginX, gridStartY - 3.5, pageWidth - marginX, gridStartY - 3.5);
 
       previewProducts.forEach((product, index) => {
         const column = index % columns;
@@ -1526,24 +1584,24 @@ export default function App() {
         drawPosterCardPdf(pdf, product, imageAssetMap, x, y, cardWidth, cardHeight);
       });
 
-      pdf.setDrawColor(191, 184, 175);
-      pdf.setLineWidth(0.45);
-      pdf.line(marginX, 281.4, pageWidth - marginX, 281.4);
+      pdf.setDrawColor(199, 189, 177);
+      pdf.setLineWidth(0.35);
+      pdf.line(marginX, footerTop, pageWidth - marginX, footerTop);
 
-      pdf.setTextColor(121, 110, 97);
+      pdf.setTextColor(117, 106, 94);
       pdf.setFont('helvetica', 'normal');
-      pdf.setFontSize(6.3);
+      pdf.setFontSize(6.1);
       pdf.text(
         CATALOGUE_FOOTER_REFERENCE_NOTE,
         pageWidth / 2,
-        284.1,
+        footerTop + 3.8,
         { align: 'center' },
       );
-      pdf.setFontSize(6.2);
-      pdf.text(CATALOGUE_FOOTER_MINIMUM_NOTE, pageWidth / 2, 287.4, { align: 'center' });
+      pdf.setFontSize(6);
+      pdf.text(CATALOGUE_FOOTER_MINIMUM_NOTE, pageWidth / 2, footerTop + 7, { align: 'center' });
       pdf.setFont('helvetica', 'bold');
-      pdf.setFontSize(5.8);
-      pdf.text(CATALOGUE_FOOTER_EXCLUSIONS, pageWidth / 2, 290.7, { align: 'center' });
+      pdf.setFontSize(5.6);
+      pdf.text(CATALOGUE_FOOTER_EXCLUSIONS, pageWidth / 2, footerTop + 10.1, { align: 'center' });
 
       pdf.save(`lg-harris-catalogue-${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch (error) {
