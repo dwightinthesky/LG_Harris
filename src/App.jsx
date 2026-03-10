@@ -1272,6 +1272,7 @@ export default function App() {
       const canvas = await html2canvas(posterNode, {
         scale: 2,
         useCORS: true,
+        foreignObjectRendering: true,
         logging: false,
         backgroundColor: '#f4efe6',
         windowWidth: posterNode.scrollWidth,
