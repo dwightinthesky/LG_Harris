@@ -28,6 +28,7 @@ const HIDDEN_POLL_INTERVAL_MS = 60000;
 const MAX_POLL_BACKOFF_MS = 120000;
 const SESSION_COOKIE_KEY = 'lg_harris_session';
 const SESSION_QUERY_KEY = 'session';
+const DEFAULT_SHARED_SESSION_ID = 'lg-harris-main';
 const SESSION_ID_PATTERN = /^[a-zA-Z0-9-]{8,}$/;
 const CATALOGUE_FOOTER_REFERENCE_NOTE =
   '* Prices are for customer reference and remain subject to stock and approval.';
@@ -52,10 +53,6 @@ const CURRENCY_FORMATTER = new Intl.NumberFormat('en-GB', {
 
 function createId() {
   return `product-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-function createSessionId() {
-  return globalThis.crypto?.randomUUID?.() ?? createId();
 }
 
 function isValidSessionId(sessionId) {
@@ -175,6 +172,10 @@ function persistSessionId(sessionId) {
   document.cookie = `${SESSION_COOKIE_KEY}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=2592000; SameSite=Lax`;
 }
 
+function canBootstrapSessionSource(source) {
+  return source === 'generated' || source === 'default-shared';
+}
+
 function resolveDesktopSession() {
   if (typeof window === 'undefined') {
     return { sessionId: '', source: 'server' };
@@ -187,20 +188,13 @@ function resolveDesktopSession() {
   }
 
   const cookieSessionId = getSessionIdFromCookie();
-  if (isValidSessionId(cookieSessionId)) {
-    const cookieUrl = new URL(window.location.href);
-    cookieUrl.searchParams.set(SESSION_QUERY_KEY, cookieSessionId);
-    window.history.replaceState({}, '', `${cookieUrl.pathname}${cookieUrl.search}${cookieUrl.hash}`);
+  if (cookieSessionId === DEFAULT_SHARED_SESSION_ID) {
     persistSessionId(cookieSessionId);
-    return { sessionId: cookieSessionId, source: 'cookie' };
+    return { sessionId: cookieSessionId, source: 'default-shared' };
   }
 
-  const nextSessionId = createSessionId();
-  const nextUrl = new URL(window.location.href);
-  nextUrl.searchParams.set(SESSION_QUERY_KEY, nextSessionId);
-  window.history.replaceState({}, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
-  persistSessionId(nextSessionId);
-  return { sessionId: nextSessionId, source: 'generated' };
+  persistSessionId(DEFAULT_SHARED_SESSION_ID);
+  return { sessionId: DEFAULT_SHARED_SESSION_ID, source: 'default-shared' };
 }
 
 function buildMobileUploadUrl(sessionId) {
@@ -985,7 +979,7 @@ export default function App() {
   const initialDesktopSessionRef = useRef(null);
   if (initialDesktopSessionRef.current === null && typeof window !== 'undefined' && getHashRoute() !== '/upload') {
     initialDesktopSessionRef.current = resolveDesktopSession();
-    sessionBootstrapAllowedRef.current = initialDesktopSessionRef.current.source === 'generated';
+    sessionBootstrapAllowedRef.current = canBootstrapSessionSource(initialDesktopSessionRef.current.source);
   }
 
   const [route, setRoute] = useState(() => getHashRoute());
@@ -996,7 +990,8 @@ export default function App() {
 
     if (getHashRoute() === '/upload') {
       sessionBootstrapAllowedRef.current = false;
-      return getSessionIdFromUrl();
+      const uploadSessionId = getSessionIdFromUrl();
+      return isValidSessionId(uploadSessionId) ? uploadSessionId : DEFAULT_SHARED_SESSION_ID;
     }
 
     if (initialDesktopSessionRef.current) {
@@ -1004,7 +999,7 @@ export default function App() {
     }
 
     const resolved = resolveDesktopSession();
-    sessionBootstrapAllowedRef.current = resolved.source === 'generated';
+    sessionBootstrapAllowedRef.current = canBootstrapSessionSource(resolved.source);
     return resolved.sessionId;
   });
   const [products, setProducts] = useState(cloneDefaultProducts);
@@ -1047,10 +1042,10 @@ export default function App() {
           persistSessionId(nextSessionId);
         }
         sessionBootstrapAllowedRef.current = false;
-        setSessionId(nextSessionId);
+        setSessionId(isValidSessionId(nextSessionId) ? nextSessionId : DEFAULT_SHARED_SESSION_ID);
       } else {
         const resolved = resolveDesktopSession();
-        sessionBootstrapAllowedRef.current = resolved.source === 'generated';
+        sessionBootstrapAllowedRef.current = canBootstrapSessionSource(resolved.source);
         setSessionId(resolved.sessionId);
       }
     }
