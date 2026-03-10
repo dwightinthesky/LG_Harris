@@ -175,15 +175,15 @@ function persistSessionId(sessionId) {
   document.cookie = `${SESSION_COOKIE_KEY}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=2592000; SameSite=Lax`;
 }
 
-function ensureSessionIdInUrl() {
+function resolveDesktopSession() {
   if (typeof window === 'undefined') {
-    return '';
+    return { sessionId: '', source: 'server' };
   }
 
   const existing = getSessionIdFromUrl();
   if (isValidSessionId(existing)) {
     persistSessionId(existing);
-    return existing;
+    return { sessionId: existing, source: 'url' };
   }
 
   const cookieSessionId = getSessionIdFromCookie();
@@ -192,7 +192,7 @@ function ensureSessionIdInUrl() {
     cookieUrl.searchParams.set(SESSION_QUERY_KEY, cookieSessionId);
     window.history.replaceState({}, '', `${cookieUrl.pathname}${cookieUrl.search}${cookieUrl.hash}`);
     persistSessionId(cookieSessionId);
-    return cookieSessionId;
+    return { sessionId: cookieSessionId, source: 'cookie' };
   }
 
   const nextSessionId = createSessionId();
@@ -200,7 +200,7 @@ function ensureSessionIdInUrl() {
   nextUrl.searchParams.set(SESSION_QUERY_KEY, nextSessionId);
   window.history.replaceState({}, '', `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
   persistSessionId(nextSessionId);
-  return nextSessionId;
+  return { sessionId: nextSessionId, source: 'generated' };
 }
 
 function buildMobileUploadUrl(sessionId) {
@@ -960,6 +960,13 @@ export default function App() {
   const localChangeAtRef = useRef(0);
   const isSavingRef = useRef(false);
   const pollFailureCountRef = useRef(0);
+  const sessionBootstrapAllowedRef = useRef(false);
+
+  const initialDesktopSessionRef = useRef(null);
+  if (initialDesktopSessionRef.current === null && typeof window !== 'undefined' && getHashRoute() !== '/upload') {
+    initialDesktopSessionRef.current = resolveDesktopSession();
+    sessionBootstrapAllowedRef.current = initialDesktopSessionRef.current.source === 'generated';
+  }
 
   const [route, setRoute] = useState(() => getHashRoute());
   const [sessionId, setSessionId] = useState(() => {
@@ -967,7 +974,18 @@ export default function App() {
       return '';
     }
 
-    return getHashRoute() === '/upload' ? getSessionIdFromUrl() : ensureSessionIdInUrl();
+    if (getHashRoute() === '/upload') {
+      sessionBootstrapAllowedRef.current = false;
+      return getSessionIdFromUrl();
+    }
+
+    if (initialDesktopSessionRef.current) {
+      return initialDesktopSessionRef.current.sessionId;
+    }
+
+    const resolved = resolveDesktopSession();
+    sessionBootstrapAllowedRef.current = resolved.source === 'generated';
+    return resolved.sessionId;
   });
   const [products, setProducts] = useState(cloneDefaultProducts);
   const [draft, setDraft] = useState(createEmptyProduct);
@@ -1008,9 +1026,12 @@ export default function App() {
         if (isValidSessionId(nextSessionId)) {
           persistSessionId(nextSessionId);
         }
+        sessionBootstrapAllowedRef.current = false;
         setSessionId(nextSessionId);
       } else {
-        setSessionId(ensureSessionIdInUrl());
+        const resolved = resolveDesktopSession();
+        sessionBootstrapAllowedRef.current = resolved.source === 'generated';
+        setSessionId(resolved.sessionId);
       }
     }
 
@@ -1053,7 +1074,14 @@ export default function App() {
             throw error;
           }
 
+          if (!sessionBootstrapAllowedRef.current) {
+            throw new Error(
+              'This catalogue session was not found. Open the original session link or check that storage bindings point to the correct bucket.',
+            );
+          }
+
           session = await saveCatalogSession(sessionId, cloneDefaultProducts());
+          sessionBootstrapAllowedRef.current = false;
         }
 
         if (!isActive) {
