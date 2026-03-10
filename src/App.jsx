@@ -427,7 +427,6 @@ function PosterCard({ product }) {
       <div className="poster-card__body">
         <div className="poster-card__meta">
           <span className="poster-card__brand">{product.brand}</span>
-          <span className="poster-card__code">{product.code}</span>
         </div>
 
         <h3 className="poster-card__description">{product.desc}</h3>
@@ -440,11 +439,13 @@ function PosterCard({ product }) {
 
           {product.list ? (
             <div className="poster-card__list">
-              <span className="poster-card__label">List</span>
+              <span className="poster-card__label">List price</span>
               <span>{product.list}</span>
             </div>
           ) : null}
         </div>
+
+        {product.code ? <p className="poster-card__ref">Ref: {product.code}</p> : null}
       </div>
     </article>
   );
