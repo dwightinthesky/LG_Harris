@@ -417,6 +417,49 @@ async function inlinePosterImagesForCapture(posterNode) {
   };
 }
 
+function isCanvasLikelyBlank(canvas) {
+  const context = canvas.getContext('2d');
+  if (!context) {
+    return false;
+  }
+
+  const { width, height } = canvas;
+  if (!width || !height) {
+    return true;
+  }
+
+  const gridSize = 8;
+  let minRed = 255;
+  let maxRed = 0;
+  let minGreen = 255;
+  let maxGreen = 0;
+  let minBlue = 255;
+  let maxBlue = 0;
+  let minAlpha = 255;
+  let maxAlpha = 0;
+
+  for (let row = 0; row <= gridSize; row += 1) {
+    for (let column = 0; column <= gridSize; column += 1) {
+      const x = Math.min(width - 1, Math.round((column / gridSize) * (width - 1)));
+      const y = Math.min(height - 1, Math.round((row / gridSize) * (height - 1)));
+      const sample = context.getImageData(x, y, 1, 1).data;
+
+      minRed = Math.min(minRed, sample[0]);
+      maxRed = Math.max(maxRed, sample[0]);
+      minGreen = Math.min(minGreen, sample[1]);
+      maxGreen = Math.max(maxGreen, sample[1]);
+      minBlue = Math.min(minBlue, sample[2]);
+      maxBlue = Math.max(maxBlue, sample[2]);
+      minAlpha = Math.min(minAlpha, sample[3]);
+      maxAlpha = Math.max(maxAlpha, sample[3]);
+    }
+  }
+
+  const colourVariance =
+    (maxRed - minRed) + (maxGreen - minGreen) + (maxBlue - minBlue) + (maxAlpha - minAlpha);
+  return colourVariance < 8;
+}
+
 function sampleBackgroundColour(data, width, height) {
   const border = Math.max(2, Math.floor(Math.min(width, height) * 0.04));
   const step = Math.max(1, Math.floor(Math.min(width, height) / 120));
@@ -1890,21 +1933,26 @@ export default function App() {
 
       let canvas;
       try {
-        canvas = await html2canvas(posterNode, {
+        const baseOptions = {
           scale: 2,
           useCORS: false,
-          foreignObjectRendering: true,
           logging: false,
           backgroundColor: '#f4efe6',
           removeContainer: true,
           imageTimeout: 20000,
-          width: posterNode.offsetWidth,
-          height: posterNode.offsetHeight,
-          windowWidth: posterNode.offsetWidth,
-          windowHeight: posterNode.offsetHeight,
-          scrollX: 0,
-          scrollY: 0,
+        };
+
+        canvas = await html2canvas(posterNode, {
+          ...baseOptions,
+          foreignObjectRendering: true,
         });
+
+        if (isCanvasLikelyBlank(canvas)) {
+          canvas = await html2canvas(posterNode, {
+            ...baseOptions,
+            foreignObjectRendering: false,
+          });
+        }
       } finally {
         restoreImages();
       }
