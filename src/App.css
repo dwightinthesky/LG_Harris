@@ -263,6 +263,27 @@
   font-size: 0.92rem;
 }
 
+.option-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.2rem;
+  color: var(--muted-dark);
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.option-check input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+}
+
+.option-check--compact {
+  margin-top: 0.75rem;
+  font-size: 0.88rem;
+}
+
 .upload-zone__icon {
   display: grid;
   place-items: center;

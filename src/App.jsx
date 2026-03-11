@@ -330,6 +330,143 @@ async function compressImageFile(file, { maxEdge = 1600, quality = 0.82 } = {}) 
   return canvas.toDataURL('image/jpeg', quality);
 }
 
+async function convertBlobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+    reader.onerror = () => reject(new Error('That image could not be prepared.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function sampleBackgroundColour(data, width, height) {
+  const border = Math.max(2, Math.floor(Math.min(width, height) * 0.04));
+  const step = Math.max(1, Math.floor(Math.min(width, height) / 120));
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+  let count = 0;
+
+  const includePixel = (x, y) => {
+    const index = (y * width + x) * 4;
+    const alpha = data[index + 3];
+    if (alpha < 40) {
+      return;
+    }
+    red += data[index];
+    green += data[index + 1];
+    blue += data[index + 2];
+    count += 1;
+  };
+
+  for (let x = 0; x < width; x += step) {
+    for (let y = 0; y < border; y += 1) {
+      includePixel(x, y);
+      includePixel(x, height - 1 - y);
+    }
+  }
+
+  for (let y = border; y < height - border; y += step) {
+    for (let x = 0; x < border; x += 1) {
+      includePixel(x, y);
+      includePixel(width - 1 - x, y);
+    }
+  }
+
+  if (!count) {
+    return { red: 245, green: 245, blue: 245 };
+  }
+
+  return {
+    red: red / count,
+    green: green / count,
+    blue: blue / count,
+  };
+}
+
+async function removeBackgroundFromDataUrl(sourceDataUrl, { maxEdge = 1600 } = {}) {
+  const image = await loadImage(sourceDataUrl);
+  const longestEdge = Math.max(image.naturalWidth, image.naturalHeight) || 1;
+  const scale = Math.min(1, maxEdge / longestEdge);
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('This browser cannot prepare image uploads.');
+  }
+
+  context.clearRect(0, 0, width, height);
+  context.drawImage(image, 0, 0, width, height);
+
+  const imageData = context.getImageData(0, 0, width, height);
+  const { data } = imageData;
+  const background = sampleBackgroundColour(data, width, height);
+
+  for (let index = 0; index < data.length; index += 4) {
+    const alpha = data[index + 3];
+    if (alpha === 0) {
+      continue;
+    }
+
+    const red = data[index];
+    const green = data[index + 1];
+    const blue = data[index + 2];
+    const brightness = (red + green + blue) / 3;
+    const saturation = Math.max(red, green, blue) - Math.min(red, green, blue);
+    const distance = Math.hypot(
+      red - background.red,
+      green - background.green,
+      blue - background.blue,
+    );
+
+    let nextAlpha = alpha;
+    if (distance < 34 || (brightness > 244 && saturation < 18)) {
+      nextAlpha = 0;
+    } else if (distance < 60 || (brightness > 226 && saturation < 30)) {
+      const distanceFactor = Math.max(0, Math.min(1, (distance - 34) / 26));
+      const brightnessFactor = Math.max(0, Math.min(1, (244 - brightness) / 18));
+      nextAlpha = Math.round(alpha * Math.max(distanceFactor, brightnessFactor));
+    }
+
+    data[index + 3] = nextAlpha;
+  }
+
+  context.putImageData(imageData, 0, 0);
+  return canvas.toDataURL('image/png');
+}
+
+async function removeBackgroundFromImageSource(imageSource) {
+  if (!imageSource) {
+    throw new Error('No image source was provided.');
+  }
+
+  if (imageSource.startsWith('data:')) {
+    return removeBackgroundFromDataUrl(imageSource);
+  }
+
+  const response = await fetch(imageSource, { cache: 'no-store' });
+  if (!response.ok) {
+    throw new Error('A stored image could not be loaded for background removal.');
+  }
+
+  const blob = await response.blob();
+  const sourceDataUrl = await convertBlobToDataUrl(blob);
+  return removeBackgroundFromDataUrl(sourceDataUrl);
+}
+
+async function prepareUploadedImage(file, { removeBackground = false } = {}) {
+  if (removeBackground) {
+    const sourceDataUrl = await readFileAsDataUrl(file);
+    return removeBackgroundFromDataUrl(sourceDataUrl);
+  }
+
+  return compressImageFile(file);
+}
+
 async function waitForElementImages(element) {
   const images = Array.from(element.querySelectorAll('img'));
   await Promise.all(
@@ -551,6 +688,7 @@ function MobileUploadView({ sessionId }) {
   const [selectedProductId, setSelectedProductId] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
+  const [removeBackgroundOnUpload, setRemoveBackgroundOnUpload] = useState(true);
   const [statusMessage, setStatusMessage] = useState(
     'Scan the desktop QR code, choose a product, then take a photo or upload one from your mobile.',
   );
@@ -622,16 +760,20 @@ function MobileUploadView({ sessionId }) {
 
     setIsUploading(true);
     setErrorMessage('');
-    setStatusMessage('Preparing image...');
+    setStatusMessage(
+      removeBackgroundOnUpload ? 'Removing background and preparing image...' : 'Preparing image...',
+    );
 
     try {
-      const compressedDataUrl = await compressImageFile(file);
+      const processedDataUrl = await prepareUploadedImage(file, {
+        removeBackground: removeBackgroundOnUpload,
+      });
       setStatusMessage('Uploading image to the catalogue...');
 
       const response = await uploadCatalogImage(
         sessionId,
         selectedProductId,
-        compressedDataUrl,
+        processedDataUrl,
         file.name,
       );
 
@@ -731,6 +873,15 @@ function MobileUploadView({ sessionId }) {
                   {isUploading ? <Loader2 className="spin" size={20} /> : <Camera size={20} />}
                   <span>{isUploading ? 'Uploading image...' : 'Take photo or choose image'}</span>
                 </label>
+                <label className="option-check option-check--compact">
+                  <input
+                    type="checkbox"
+                    checked={removeBackgroundOnUpload}
+                    onChange={(event) => setRemoveBackgroundOnUpload(event.target.checked)}
+                    disabled={isUploading}
+                  />
+                  <span>Remove background before upload</span>
+                </label>
               </div>
             ) : (
               <div className="subtle-banner mobile-banner">
@@ -793,6 +944,9 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [isSubmittingDraft, setIsSubmittingDraft] = useState(false);
+  const [isPreparingImage, setIsPreparingImage] = useState(false);
+  const [isBatchRemovingBackground, setIsBatchRemovingBackground] = useState(false);
+  const [removeBackgroundOnUpload, setRemoveBackgroundOnUpload] = useState(true);
   const [syncMessage, setSyncMessage] = useState('Connecting to shared catalogue workspace...');
   const [formMessage, setFormMessage] = useState(
     'Edits made here and uploads from mobile are saved to the same shared catalogue session.',
@@ -1114,21 +1268,86 @@ export default function App() {
     }
 
     try {
-      const compressedDataUrl = await compressImageFile(file);
+      setIsPreparingImage(true);
+      setFormMessage(
+        removeBackgroundOnUpload
+          ? 'Removing background and preparing image...'
+          : 'Preparing image...',
+      );
+      const processedDataUrl = await prepareUploadedImage(file, {
+        removeBackground: removeBackgroundOnUpload,
+      });
       setDraft((current) => ({
         ...current,
-        image: compressedDataUrl,
+        image: processedDataUrl,
       }));
       setDraftImageName(file.name);
       setFormMessage(
         editingProductId
-          ? `${file.name} is ready. Save changes to replace the current product image.`
-          : `${file.name} is ready. It will upload once the product has been added.`,
+          ? `${file.name} is ready${removeBackgroundOnUpload ? ' with background removed' : ''}. Save changes to replace the current product image.`
+          : `${file.name} is ready${removeBackgroundOnUpload ? ' with background removed' : ''}. It will upload once the product has been added.`,
       );
     } catch (error) {
       setFormMessage(error.message);
       event.target.value = '';
+    } finally {
+      setIsPreparingImage(false);
     }
+  }
+
+  async function handleRemoveBackgroundForCurrentImages() {
+    if (!sessionId) {
+      setFormMessage('Shared catalogue session is unavailable.');
+      return;
+    }
+
+    const productsWithImages = products.filter((product) => Boolean(product.image));
+    if (!productsWithImages.length) {
+      setFormMessage('There are no product images available for background removal.');
+      return;
+    }
+
+    setIsBatchRemovingBackground(true);
+    setFormMessage(
+      `Removing backgrounds for ${productsWithImages.length} image${productsWithImages.length === 1 ? '' : 's'}...`,
+    );
+
+    let successCount = 0;
+    let failureCount = 0;
+
+    for (const product of productsWithImages) {
+      try {
+        const transparentDataUrl = await removeBackgroundFromImageSource(product.image);
+        const response = await uploadCatalogImage(
+          sessionId,
+          product.id,
+          transparentDataUrl,
+          `${product.code || product.id}.png`,
+        );
+        touchCatalog();
+        successCount += 1;
+        setProducts((current) =>
+          current.map((entry) =>
+            entry.id === response.product.id ? buildProduct(response.product, entry.id) : entry,
+          ),
+        );
+      } catch (error) {
+        failureCount += 1;
+        console.warn('Background removal failed for product', product.id, error);
+      }
+    }
+
+    if (failureCount) {
+      setFormMessage(
+        `Background removal completed for ${successCount} product image${successCount === 1 ? '' : 's'}. ${failureCount} failed, please retry those items.`,
+      );
+    } else {
+      setFormMessage(
+        `Background removal completed for ${successCount} product image${successCount === 1 ? '' : 's'}.`,
+      );
+    }
+
+    setIsBatchRemovingBackground(false);
   }
 
   async function handleAddProduct(event) {
@@ -1440,7 +1659,7 @@ export default function App() {
                       type="file"
                       accept="image/*"
                       onChange={handleImageUpload}
-                      disabled={isBootstrapping || isSubmittingDraft}
+                      disabled={isBootstrapping || isSubmittingDraft || isPreparingImage}
                     />
 
                     <div className="upload-zone__icon">
@@ -1463,20 +1682,32 @@ export default function App() {
                     </div>
                   </label>
 
+                  <label className="option-check">
+                    <input
+                      type="checkbox"
+                      checked={removeBackgroundOnUpload}
+                      onChange={(event) => setRemoveBackgroundOnUpload(event.target.checked)}
+                      disabled={isBootstrapping || isSubmittingDraft || isPreparingImage}
+                    />
+                    <span>Remove background from this upload (recommended)</span>
+                  </label>
+
                   <div className="form-actions">
                     <button
                       className="button button--primary"
                       type="submit"
-                      disabled={isBootstrapping || isSubmittingDraft}
+                      disabled={isBootstrapping || isSubmittingDraft || isPreparingImage}
                     >
-                      {isSubmittingDraft ? (
+                      {isSubmittingDraft || isPreparingImage ? (
                         <Loader2 className="spin" size={18} />
                       ) : editingProduct ? (
                         <Pencil size={18} />
                       ) : (
                         <PackagePlus size={18} />
                       )}
-                      {isSubmittingDraft
+                      {isPreparingImage
+                        ? 'Preparing image...'
+                        : isSubmittingDraft
                         ? 'Saving product...'
                         : editingProduct
                           ? 'Save changes'
@@ -1561,6 +1792,21 @@ export default function App() {
                 )}
 
                 <div className="stack-actions">
+                  <button
+                    className="button button--secondary"
+                    type="button"
+                    onClick={handleRemoveBackgroundForCurrentImages}
+                    disabled={
+                      isBatchRemovingBackground ||
+                      isBootstrapping ||
+                      !products.some((product) => Boolean(product.image))
+                    }
+                  >
+                    {isBatchRemovingBackground ? <Loader2 className="spin" size={18} /> : <ImageIcon size={18} />}
+                    {isBatchRemovingBackground
+                      ? 'Removing backgrounds...'
+                      : 'Remove backgrounds from current images'}
+                  </button>
                   <button className="button button--ghost" type="button" onClick={restoreDefaults}>
                     <RefreshCw size={18} />
                     Restore starter list
