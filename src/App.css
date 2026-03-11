@@ -651,11 +651,12 @@
 }
 
 .poster-kicker {
-  display: block;
+  display: inline-flex;
+  align-items: center;
   margin: 0 0 1.4mm;
   font-size: 2.55mm;
   font-weight: 700;
-  line-height: 1;
+  line-height: 1.14;
   color: #8bc0f0;
 }
 
@@ -680,11 +681,13 @@
 .poster-chip {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  min-height: 5.2mm;
   margin-top: 2mm;
   padding: 1.25mm 2.8mm;
   border-radius: 999px;
   font-size: 2.45mm;
-  line-height: 1;
+  line-height: 1.14;
   font-weight: 700;
   color: #fff;
   background: linear-gradient(135deg, var(--accent), #df7b4a);
@@ -747,12 +750,16 @@
 
 .poster-card__badge {
   position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 4mm;
   top: 1mm;
   right: 1mm;
   padding: 0.55mm 1.4mm;
   border-radius: 999px;
   font-size: 1.95mm;
-  line-height: 1;
+  line-height: 1.16;
   font-weight: 700;
   color: #fff;
   background: rgba(195, 71, 47, 0.96);
@@ -776,11 +783,12 @@
 .poster-card__brand {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: 4.5mm;
   padding: 0.3mm 1.4mm;
   border-radius: 999px;
   font-size: 2.2mm;
-  line-height: 1;
+  line-height: 1.12;
   font-weight: 700;
   text-transform: uppercase;
   color: #174684;
@@ -809,10 +817,11 @@
 }
 
 .poster-card__label {
-  display: block;
+  display: inline-flex;
+  align-items: center;
   margin-bottom: 0.45mm;
   font-size: 2.05mm;
-  line-height: 1;
+  line-height: 1.15;
   color: #7f7468;
   font-weight: 700;
 }
@@ -821,7 +830,7 @@
   display: block;
   font-family: var(--font-display);
   font-size: 4.8mm;
-  line-height: 1;
+  line-height: 1.05;
   color: var(--accent);
 }
 
@@ -844,7 +853,7 @@
   margin: 1mm 0 0;
   font-family: 'IBM Plex Mono', 'SFMono-Regular', Consolas, monospace;
   font-size: 1.95mm;
-  line-height: 1;
+  line-height: 1.15;
   color: #8c8276;
 }
 
@@ -898,7 +907,7 @@
 .poster-canvas--export .poster-kicker {
   margin-bottom: 8px;
   font-size: 15px;
-  line-height: 1;
+  line-height: 1.14;
 }
 
 .poster-canvas--export .poster-title {
@@ -915,8 +924,9 @@
 .poster-canvas--export .poster-chip {
   margin-top: 11px;
   padding: 7px 16px;
+  min-height: 30px;
   font-size: 14px;
-  line-height: 1;
+  line-height: 1.14;
 }
 
 .poster-canvas--export .poster-products {
@@ -956,9 +966,10 @@
 .poster-canvas--export .poster-card__badge {
   top: 7px;
   right: 7px;
+  min-height: 24px;
   padding: 4px 8px;
   font-size: 11px;
-  line-height: 1;
+  line-height: 1.16;
 }
 
 .poster-canvas--export .poster-card__body {
@@ -978,7 +989,7 @@
 
 .poster-canvas--export .poster-card__brand {
   font-size: 12px;
-  line-height: 1;
+  line-height: 1.12;
 }
 
 .poster-canvas--export .poster-card__description {
@@ -995,7 +1006,7 @@
 .poster-canvas--export .poster-card__label {
   margin-bottom: 2px;
   font-size: 11px;
-  line-height: 1;
+  line-height: 1.15;
 }
 
 .poster-canvas--export .poster-card__price {
