@@ -505,6 +505,10 @@
   min-width: 8.7rem;
 }
 
+.topbar-preview-button {
+  min-width: 11.8rem;
+}
+
 .session-warning {
   margin-bottom: 1rem;
 }

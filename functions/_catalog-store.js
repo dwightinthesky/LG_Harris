@@ -54,12 +54,13 @@ function normalizeSessionSettings(sessionData = {}) {
   const ownerId = normalizeText(sessionData.ownerId);
   const ownerName = normalizeText(sessionData.ownerName);
   const fallbackName = ownerName ? `${ownerName}'s catalogue` : 'Catalogue';
+  const hasSharedFlag = Object.prototype.hasOwnProperty.call(sessionData, 'isShared');
 
   return {
     ownerId,
     ownerName,
     catalogName: normalizeText(sessionData.catalogName) || fallbackName,
-    isShared: normalizeBoolean(sessionData.isShared),
+    isShared: hasSharedFlag ? normalizeBoolean(sessionData.isShared) : true,
   };
 }
 
@@ -190,7 +191,8 @@ export async function upsertSessionProducts(env, sessionId, incomingProducts, op
     normalizeText(options.catalogName) ||
     current?.catalogName ||
     (ownerName ? `${ownerName}'s catalogue` : 'Catalogue');
-  const isShared = typeof options.isShared === 'boolean' ? options.isShared : Boolean(current?.isShared);
+  const isShared =
+    typeof options.isShared === 'boolean' ? options.isShared : current ? Boolean(current.isShared) : true;
 
   return writeSession(env, sessionId, {
     createdAt: current?.createdAt ?? new Date().toISOString(),
@@ -335,6 +337,10 @@ export async function saveProductImage(env, { sessionId, productId, mimeType, by
 
   const savedSession = await writeSession(env, sessionId, {
     createdAt: current.createdAt ?? updatedAt,
+    ownerId: current.ownerId,
+    ownerName: current.ownerName,
+    catalogName: current.catalogName,
+    isShared: current.isShared,
     products,
   });
 

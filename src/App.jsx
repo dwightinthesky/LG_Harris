@@ -7,6 +7,7 @@ import {
   Cloud,
   Copy,
   Download,
+  Eye,
   Image as ImageIcon,
   LayoutTemplate,
   Loader2,
@@ -1024,6 +1025,7 @@ export default function App() {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [loginDraft, setLoginDraft] = useState({ username: '', password: '' });
   const [authError, setAuthError] = useState('');
+  const [isVisitorPreview, setIsVisitorPreview] = useState(false);
   const [sharedCatalogues, setSharedCatalogues] = useState([]);
   const [isLoadingSharedCatalogues, setIsLoadingSharedCatalogues] = useState(false);
   const [catalogName, setCatalogName] = useState('My catalogue');
@@ -1046,7 +1048,8 @@ export default function App() {
 
   const isMobileUploadRoute = route === '/upload';
   const isStaffAuthenticated = Boolean(authUser);
-  const isPublicVisitor = !isMobileUploadRoute && !isStaffAuthenticated;
+  const isStaffWorkspace = isStaffAuthenticated && !isVisitorPreview;
+  const isPublicVisitor = !isMobileUploadRoute && !isStaffWorkspace;
   const previewProducts = useMemo(() => products.slice(0, PREVIEW_LIMIT), [products]);
   const hiddenProducts = Math.max(products.length - PREVIEW_LIMIT, 0);
   const mobileUploadUrl = useMemo(() => buildMobileUploadUrl(sessionId), [sessionId]);
@@ -1079,10 +1082,11 @@ export default function App() {
 
         if (authSession?.authenticated && authSession.user) {
           setAuthUser(authSession.user);
+          setIsVisitorPreview(false);
           sessionBootstrapAllowedRef.current = true;
           setSessionId(authSession.user.sessionId);
           setCatalogName(`${authSession.user.displayName}'s catalogue`);
-          setIsSharedCatalog(false);
+          setIsSharedCatalog(true);
           setProducts([]);
           setSessionError('');
           setCurrentView('manage');
@@ -1090,6 +1094,7 @@ export default function App() {
           syncSessionQueryParam('');
         } else {
           setAuthUser(null);
+          setIsVisitorPreview(false);
           sessionBootstrapAllowedRef.current = false;
           setSessionId('');
           setProducts([]);
@@ -1105,6 +1110,7 @@ export default function App() {
         }
 
         setAuthUser(null);
+        setIsVisitorPreview(false);
         sessionBootstrapAllowedRef.current = false;
         setSessionId('');
         setProducts([]);
@@ -1126,7 +1132,7 @@ export default function App() {
   }, [isMobileUploadRoute]);
 
   useEffect(() => {
-    if (isMobileUploadRoute || isAuthChecking || isStaffAuthenticated) {
+    if (isMobileUploadRoute || isAuthChecking || !isPublicVisitor) {
       return;
     }
 
@@ -1184,7 +1190,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [isAuthChecking, isMobileUploadRoute, isStaffAuthenticated]);
+  }, [isAuthChecking, isMobileUploadRoute, isPublicVisitor]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -1200,10 +1206,17 @@ export default function App() {
         sessionBootstrapAllowedRef.current = false;
         setSessionId(isValidSessionId(nextSessionId) ? nextSessionId : DEFAULT_SHARED_SESSION_ID);
       } else {
-        const signedInSessionId = authUser?.sessionId ?? '';
-        sessionBootstrapAllowedRef.current = Boolean(signedInSessionId);
-        if (signedInSessionId) {
-          setSessionId(signedInSessionId);
+        if (isStaffWorkspace) {
+          const signedInSessionId = authUser?.sessionId ?? '';
+          sessionBootstrapAllowedRef.current = Boolean(signedInSessionId);
+          if (signedInSessionId) {
+            setSessionId(signedInSessionId);
+          }
+        } else {
+          const urlSessionId = getSessionIdFromUrl();
+          if (isValidSessionId(urlSessionId)) {
+            setSessionId(urlSessionId);
+          }
         }
       }
     }
@@ -1216,7 +1229,7 @@ export default function App() {
       window.removeEventListener('hashchange', syncLocation);
       window.removeEventListener('popstate', syncLocation);
     };
-  }, [authUser]);
+  }, [authUser, isStaffWorkspace]);
 
   useEffect(() => {
     if (isMobileUploadRoute || isAuthChecking || !sessionId) {
@@ -1266,11 +1279,11 @@ export default function App() {
         setIsSharedCatalog(Boolean(session.isShared));
         pollFailureCountRef.current = 0;
         setSyncMessage(
-          isStaffAuthenticated
+          isStaffWorkspace
             ? 'Signed in to your private catalogue workspace'
             : 'Viewing shared catalogue',
         );
-        if (!isStaffAuthenticated) {
+        if (!isStaffWorkspace) {
           syncSessionQueryParam(session.sessionId);
         }
       } catch (error) {
@@ -1292,10 +1305,10 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [isAuthChecking, isMobileUploadRoute, isStaffAuthenticated, sessionId]);
+  }, [isAuthChecking, isMobileUploadRoute, isStaffWorkspace, sessionId]);
 
   useEffect(() => {
-    if (isMobileUploadRoute || isAuthChecking || !isStaffAuthenticated || !sessionId || isBootstrapping) {
+    if (isMobileUploadRoute || isAuthChecking || !isStaffWorkspace || !sessionId || isBootstrapping) {
       return undefined;
     }
 
@@ -1329,7 +1342,7 @@ export default function App() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [isAuthChecking, isBootstrapping, isMobileUploadRoute, isStaffAuthenticated, products, sessionId]);
+  }, [isAuthChecking, isBootstrapping, isMobileUploadRoute, isStaffWorkspace, products, sessionId]);
 
   useEffect(() => {
     if (isMobileUploadRoute || isAuthChecking || !sessionId || isBootstrapping) {
@@ -1716,6 +1729,7 @@ export default function App() {
 
       const user = response.user;
       setAuthUser(user);
+      setIsVisitorPreview(false);
       sessionBootstrapAllowedRef.current = true;
       setSessionId(user.sessionId);
       setProducts([]);
@@ -1745,6 +1759,7 @@ export default function App() {
       console.warn('Logout request failed', error);
     } finally {
       setAuthUser(null);
+      setIsVisitorPreview(false);
       sessionBootstrapAllowedRef.current = false;
       setSessionId('');
       setProducts([]);
@@ -1755,6 +1770,30 @@ export default function App() {
       setIsLoggingIn(false);
       syncSessionQueryParam('');
     }
+  }
+
+  function toggleVisitorPreview() {
+    if (!isStaffAuthenticated) {
+      return;
+    }
+
+    setSessionError('');
+    if (isVisitorPreview) {
+      setIsVisitorPreview(false);
+      setCurrentView('manage');
+      setSessionId(authUser?.sessionId ?? '');
+      setSyncMessage('Signed in to your private catalogue workspace');
+      syncSessionQueryParam('');
+      return;
+    }
+
+    setIsVisitorPreview(true);
+    setCurrentView('preview');
+    setSessionId('');
+    setProducts([]);
+    setCatalogName('');
+    setSyncMessage('Visitor preview mode');
+    syncSessionQueryParam('');
   }
 
   function selectPublicCatalogue(nextSessionId) {
@@ -1891,27 +1930,39 @@ export default function App() {
         <div className="topbar-actions">
           <span className="save-pill">
             <Cloud size={14} />
-            {isStaffAuthenticated ? syncMessage : 'Public shared catalogue view'}
+            {isPublicVisitor ? 'Public shared catalogue view' : syncMessage}
           </span>
 
           {isStaffAuthenticated ? (
             <>
-              <div className="view-switch" role="tablist" aria-label="Catalogue views">
-                <button
-                  type="button"
-                  className={currentView === 'manage' ? 'is-active' : ''}
-                  onClick={() => setCurrentView('manage')}
-                >
-                  Manage
-                </button>
-                <button
-                  type="button"
-                  className={currentView === 'preview' ? 'is-active' : ''}
-                  onClick={() => setCurrentView('preview')}
-                >
-                  Preview
-                </button>
-              </div>
+              {isStaffWorkspace ? (
+                <div className="view-switch" role="tablist" aria-label="Catalogue views">
+                  <button
+                    type="button"
+                    className={currentView === 'manage' ? 'is-active' : ''}
+                    onClick={() => setCurrentView('manage')}
+                  >
+                    Manage
+                  </button>
+                  <button
+                    type="button"
+                    className={currentView === 'preview' ? 'is-active' : ''}
+                    onClick={() => setCurrentView('preview')}
+                  >
+                    Preview
+                  </button>
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                className="button button--secondary topbar-preview-button"
+                onClick={toggleVisitorPreview}
+                disabled={isLoggingIn}
+              >
+                <Eye size={18} />
+                {isVisitorPreview ? 'Back to Staff View' : 'Preview as Visitor'}
+              </button>
 
               <button
                 type="button"
@@ -1946,49 +1997,72 @@ export default function App() {
 
             <section className="public-layout no-print">
               <article className="panel panel--auth">
-                <div className="section-heading section-heading--compact">
-                  <span className="eyebrow">Staff access</span>
-                  <h2>Sign in to manage your own catalogue.</h2>
-                  <p>
-                    Each staff account has a separate catalogue. You can keep it private or share it
-                    publicly on this page.
-                  </p>
-                </div>
+                {isStaffAuthenticated ? (
+                  <>
+                    <div className="section-heading section-heading--compact">
+                      <span className="eyebrow">Visitor preview mode</span>
+                      <h2>Browsing as a public visitor.</h2>
+                      <p>
+                        You are still signed in as staff. This view only shows catalogues currently
+                        shared publicly.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="button button--secondary"
+                      onClick={toggleVisitorPreview}
+                    >
+                      <ArrowRight size={18} />
+                      Back to staff workspace
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div className="section-heading section-heading--compact">
+                      <span className="eyebrow">Staff access</span>
+                      <h2>Sign in to manage your own catalogue.</h2>
+                      <p>
+                        Each staff account has a separate catalogue. You can keep it private or share it
+                        publicly on this page.
+                      </p>
+                    </div>
 
-                <form className="product-form" onSubmit={handleLoginSubmit}>
-                  <label className="field">
-                    <span>Username</span>
-                    <input
-                      required
-                      type="text"
-                      autoComplete="username"
-                      placeholder="staff.username"
-                      value={loginDraft.username}
-                      onChange={(event) => updateLoginDraft('username', event.target.value)}
-                      disabled={isLoggingIn}
-                    />
-                  </label>
+                    <form className="product-form" onSubmit={handleLoginSubmit}>
+                      <label className="field">
+                        <span>Username</span>
+                        <input
+                          required
+                          type="text"
+                          autoComplete="username"
+                          placeholder="staff.username"
+                          value={loginDraft.username}
+                          onChange={(event) => updateLoginDraft('username', event.target.value)}
+                          disabled={isLoggingIn}
+                        />
+                      </label>
 
-                  <label className="field">
-                    <span>Password</span>
-                    <input
-                      required
-                      type="password"
-                      autoComplete="current-password"
-                      placeholder="••••••••"
-                      value={loginDraft.password}
-                      onChange={(event) => updateLoginDraft('password', event.target.value)}
-                      disabled={isLoggingIn}
-                    />
-                  </label>
+                      <label className="field">
+                        <span>Password</span>
+                        <input
+                          required
+                          type="password"
+                          autoComplete="current-password"
+                          placeholder="••••••••"
+                          value={loginDraft.password}
+                          onChange={(event) => updateLoginDraft('password', event.target.value)}
+                          disabled={isLoggingIn}
+                        />
+                      </label>
 
-                  <button className="button button--primary" type="submit" disabled={isLoggingIn}>
-                    {isLoggingIn ? <Loader2 className="spin" size={18} /> : <ArrowRight size={18} />}
-                    {isLoggingIn ? 'Signing in...' : 'Sign in'}
-                  </button>
-                </form>
+                      <button className="button button--primary" type="submit" disabled={isLoggingIn}>
+                        {isLoggingIn ? <Loader2 className="spin" size={18} /> : <ArrowRight size={18} />}
+                        {isLoggingIn ? 'Signing in...' : 'Sign in'}
+                      </button>
+                    </form>
 
-                {authError ? <p className="status-error">{authError}</p> : null}
+                    {authError ? <p className="status-error">{authError}</p> : null}
+                  </>
+                )}
               </article>
 
               <aside className="panel panel--shared">
