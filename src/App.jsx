@@ -1268,15 +1268,34 @@ export default function App() {
           return;
         }
 
-        const nextProducts = normalizeProducts(session.products);
+        let effectiveSession = session;
+        if (
+          isStaffWorkspace &&
+          authUser?.userId &&
+          session.ownerId === authUser.userId &&
+          !session.isShared
+        ) {
+          try {
+            effectiveSession = await saveCatalogSettings(session.sessionId, {
+              catalogName: session.catalogName,
+              isShared: true,
+            });
+          } catch (autoShareError) {
+            console.warn('Could not auto-enable sharing for staff catalogue', autoShareError);
+          }
+        }
+
+        const nextProducts = normalizeProducts(effectiveSession.products);
         const snapshot = getProductsSnapshot(nextProducts);
         serverSnapshotRef.current = snapshot;
         setProducts(nextProducts);
         setCatalogName(
-          session.catalogName ||
-            (session.ownerName ? `${session.ownerName}'s catalogue` : 'LG Harris catalogue'),
+          effectiveSession.catalogName ||
+            (effectiveSession.ownerName
+              ? `${effectiveSession.ownerName}'s catalogue`
+              : 'LG Harris catalogue'),
         );
-        setIsSharedCatalog(Boolean(session.isShared));
+        setIsSharedCatalog(Boolean(effectiveSession.isShared));
         pollFailureCountRef.current = 0;
         setSyncMessage(
           isStaffWorkspace
@@ -1284,7 +1303,7 @@ export default function App() {
             : 'Viewing shared catalogue',
         );
         if (!isStaffWorkspace) {
-          syncSessionQueryParam(session.sessionId);
+          syncSessionQueryParam(effectiveSession.sessionId);
         }
       } catch (error) {
         if (!isActive) {
@@ -1305,7 +1324,7 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [isAuthChecking, isMobileUploadRoute, isStaffWorkspace, sessionId]);
+  }, [authUser?.userId, isAuthChecking, isMobileUploadRoute, isStaffWorkspace, sessionId]);
 
   useEffect(() => {
     if (isMobileUploadRoute || isAuthChecking || !isStaffWorkspace || !sessionId || isBootstrapping) {
