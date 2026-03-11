@@ -657,7 +657,6 @@
   font-size: 2.55mm;
   font-weight: 700;
   line-height: 1.14;
-  transform: translateY(-0.12mm);
   color: #8bc0f0;
 }
 
@@ -693,7 +692,6 @@
   font-size: 2.45mm;
   line-height: 1.14;
   font-weight: 700;
-  transform: translateY(-0.12mm);
   text-wrap: balance;
   color: #fff;
   background: linear-gradient(135deg, var(--accent), #df7b4a);
@@ -767,7 +765,6 @@
   font-size: 1.95mm;
   line-height: 1.16;
   font-weight: 700;
-  transform: translateY(-0.12mm);
   color: #fff;
   background: rgba(195, 71, 47, 0.96);
 }
@@ -797,7 +794,6 @@
   font-size: 2.2mm;
   line-height: 1.12;
   font-weight: 700;
-  transform: translateY(-0.1mm);
   text-transform: uppercase;
   color: #174684;
   background: #e9f1fe;
@@ -832,7 +828,6 @@
   line-height: 1.15;
   color: #7f7468;
   font-weight: 700;
-  transform: translateY(-0.08mm);
 }
 
 .poster-card__price {
@@ -840,7 +835,6 @@
   font-family: var(--font-display);
   font-size: 4.8mm;
   line-height: 1.05;
-  transform: translateY(-0.12mm);
   color: var(--accent);
 }
 
@@ -918,7 +912,6 @@
   margin-bottom: 8px;
   font-size: 15px;
   line-height: 1.14;
-  transform: translateY(-1px);
 }
 
 .poster-canvas--export .poster-title {
@@ -939,7 +932,6 @@
   gap: 2px 8px;
   font-size: 14px;
   line-height: 1.14;
-  transform: translateY(-1px);
 }
 
 .poster-canvas--export .poster-products {
@@ -983,7 +975,6 @@
   padding: 4px 8px;
   font-size: 11px;
   line-height: 1.16;
-  transform: translateY(-1px);
 }
 
 .poster-canvas--export .poster-card__body {
@@ -1004,7 +995,6 @@
 .poster-canvas--export .poster-card__brand {
   font-size: 12px;
   line-height: 1.12;
-  transform: translateY(-1px);
 }
 
 .poster-canvas--export .poster-card__description {
@@ -1022,11 +1012,6 @@
   margin-bottom: 2px;
   font-size: 11px;
   line-height: 1.15;
-  transform: translateY(-1px);
-}
-
-.poster-canvas--export .poster-card__price {
-  transform: translateY(-1px);
 }
 
 .poster-canvas--export .poster-card__price {

@@ -1893,13 +1893,17 @@ export default function App() {
         canvas = await html2canvas(posterNode, {
           scale: 2,
           useCORS: false,
-          foreignObjectRendering: false,
+          foreignObjectRendering: true,
           logging: false,
           backgroundColor: '#f4efe6',
           removeContainer: true,
           imageTimeout: 20000,
-          scrollX: -window.scrollX,
-          scrollY: -window.scrollY,
+          width: posterNode.offsetWidth,
+          height: posterNode.offsetHeight,
+          windowWidth: posterNode.offsetWidth,
+          windowHeight: posterNode.offsetHeight,
+          scrollX: 0,
+          scrollY: 0,
         });
       } finally {
         restoreImages();
