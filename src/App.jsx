@@ -374,49 +374,47 @@ async function fetchImageAsDataUrl(imageUrl) {
   return convertBlobToDataUrl(blob);
 }
 
-async function buildCapturePosterNode(sourceNode) {
-  const captureNode = sourceNode.cloneNode(true);
-  captureNode.classList.add('poster-canvas--capture');
-  captureNode.style.position = 'fixed';
-  captureNode.style.top = '0';
-  captureNode.style.left = '0';
-  captureNode.style.margin = '0';
-  captureNode.style.opacity = '0';
-  captureNode.style.pointerEvents = 'none';
-  captureNode.style.zIndex = '-1';
-
-  document.body.appendChild(captureNode);
-
-  const sourceImages = Array.from(sourceNode.querySelectorAll('img'));
-  const captureImages = Array.from(captureNode.querySelectorAll('img'));
+async function inlinePosterImagesForCapture(posterNode) {
+  const images = Array.from(posterNode.querySelectorAll('img'));
+  const originalSources = new Map();
 
   await Promise.all(
-    captureImages.map(async (captureImage, index) => {
-      const sourceImage = sourceImages[index];
-      if (!sourceImage) {
+    images.map(async (image) => {
+      const sourceUrl = image.currentSrc || image.src || '';
+      if (!sourceUrl || sourceUrl.startsWith('data:')) {
         return;
       }
 
-      const sourceUrl = sourceImage.currentSrc || sourceImage.src || '';
-      if (!sourceUrl) {
-        return;
-      }
+      const originalSrcset = image.getAttribute('srcset');
+      originalSources.set(image, {
+        src: image.src,
+        srcset: originalSrcset,
+      });
 
       try {
-        captureImage.src = await fetchImageAsDataUrl(sourceUrl);
+        const dataUrl = await fetchImageAsDataUrl(sourceUrl);
+        if (originalSrcset !== null) {
+          image.removeAttribute('srcset');
+        }
+        image.src = dataUrl;
       } catch (error) {
-        console.warn('Capture image fallback to original URL', sourceUrl, error);
-        captureImage.src = sourceUrl;
+        console.warn('Inline image conversion failed, using original URL', sourceUrl, error);
       }
     }),
   );
 
-  if (document.fonts?.ready) {
-    await document.fonts.ready;
-  }
-  await waitForElementImages(captureNode);
+  await waitForElementImages(posterNode);
 
-  return captureNode;
+  return () => {
+    for (const [image, original] of originalSources.entries()) {
+      image.src = original.src;
+      if (original.srcset === null || original.srcset === undefined) {
+        image.removeAttribute('srcset');
+      } else {
+        image.setAttribute('srcset', original.srcset);
+      }
+    }
+  };
 }
 
 function sampleBackgroundColour(data, width, height) {
@@ -1885,12 +1883,11 @@ export default function App() {
         await document.fonts.ready;
       }
       await waitForElementImages(posterNode);
-
-      const captureNode = await buildCapturePosterNode(posterNode);
+      const restoreImages = await inlinePosterImagesForCapture(posterNode);
 
       let canvas;
       try {
-        canvas = await html2canvas(captureNode, {
+        canvas = await html2canvas(posterNode, {
           scale: 2,
           useCORS: false,
           foreignObjectRendering: false,
@@ -1898,13 +1895,11 @@ export default function App() {
           backgroundColor: '#f4efe6',
           removeContainer: true,
           imageTimeout: 20000,
-          windowWidth: captureNode.offsetWidth,
-          windowHeight: captureNode.offsetHeight,
-          scrollX: 0,
-          scrollY: 0,
+          scrollX: -window.scrollX,
+          scrollY: -window.scrollY,
         });
       } finally {
-        captureNode.remove();
+        restoreImages();
       }
 
       const pageWidth = 210;
