@@ -37,6 +37,20 @@ const CATALOGUE_FOOTER_MINIMUM_NOTE =
   'Minimum order: 2 cases to be eligible for the quoted price.';
 const CATALOGUE_FOOTER_EXCLUSIONS =
   'Excludes: Stax, Decco, Fortis, H&B, IBC, IBMG, NBG, Trago Mills, Home Hardware.';
+const STOCK_IMAGE_BY_CODE = Object.freeze({
+  '101064201': '/catalogue-images/101064201.webp',
+  '101064202': '/catalogue-images/101064202.webp',
+  SH102: '/catalogue-images/SH102.webp',
+  '102064200': '/catalogue-images/102064200.webp',
+  '102064201': '/catalogue-images/102064201.webp',
+  SH400: '/catalogue-images/SH400.webp',
+  '24968-001': '/catalogue-images/24968-001.webp',
+  '3854201-50': '/catalogue-images/3854201-50.webp',
+  '102064203': '/catalogue-images/102064203.webp',
+  '44967-003': '/catalogue-images/44967-003.webp',
+  '400340': '/catalogue-images/400340.webp',
+  '44968-003': '/catalogue-images/44968-003.webp',
+});
 const EMPTY_PRODUCT = Object.freeze({
   brand: '',
   code: '',
@@ -60,15 +74,35 @@ function isValidSessionId(sessionId) {
   return SESSION_ID_PATTERN.test(sessionId ?? '');
 }
 
+function normalizeProductCode(code) {
+  return String(code ?? '').trim().toUpperCase();
+}
+
+function getStockImageForCode(code) {
+  return STOCK_IMAGE_BY_CODE[normalizeProductCode(code)] ?? '';
+}
+
+function isSessionUploadedImage(image) {
+  return typeof image === 'string' && image.startsWith('/api/catalog-image?');
+}
+
 function buildProduct(product, fallbackId = createId()) {
+  const code = product.code?.trim() ?? '';
+  const sourceImage = typeof product.image === 'string' ? product.image : '';
+  const stockImage = getStockImageForCode(code);
+  const image =
+    sourceImage && (isDataUrlImage(sourceImage) || isSessionUploadedImage(sourceImage))
+      ? sourceImage
+      : stockImage || sourceImage;
+
   return {
     id: product.id ?? fallbackId,
     brand: product.brand?.trim() ?? '',
-    code: product.code?.trim() ?? '',
+    code,
     desc: product.desc?.trim() ?? '',
     deal: product.deal?.trim() ?? '',
     list: product.list?.trim() ?? '',
-    image: product.image ?? '',
+    image,
   };
 }
 
