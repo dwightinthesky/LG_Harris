@@ -117,6 +117,13 @@
   margin-bottom: 1.35rem;
 }
 
+.public-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.95fr);
+  gap: 1.35rem;
+  margin-bottom: 1.35rem;
+}
+
 .panel {
   border: 1px solid rgba(84, 63, 43, 0.1);
   border-radius: 1.6rem;
@@ -129,6 +136,11 @@
   background:
     radial-gradient(circle at top right, rgba(195, 71, 47, 0.12), transparent 32%),
     linear-gradient(180deg, rgba(255, 247, 238, 0.98), rgba(252, 248, 240, 0.98));
+}
+
+.panel--auth,
+.panel--shared {
+  min-height: 100%;
 }
 
 .panel--toolbar {
@@ -438,6 +450,61 @@
   margin-top: 1rem;
 }
 
+.catalogue-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-bottom: 1rem;
+  padding: 0.95rem;
+  border: 1px solid rgba(84, 63, 43, 0.12);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.shared-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.shared-list-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.28rem;
+  width: 100%;
+  padding: 0.9rem 1rem;
+  text-align: left;
+  border: 1px solid rgba(84, 63, 43, 0.13);
+  border-radius: 1rem;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.shared-list-item:hover {
+  border-color: rgba(195, 71, 47, 0.32);
+  background: rgba(255, 245, 240, 0.95);
+}
+
+.shared-list-item.is-active {
+  border-color: rgba(195, 71, 47, 0.4);
+  background: linear-gradient(180deg, rgba(255, 245, 240, 0.98), rgba(255, 252, 248, 0.98));
+}
+
+.shared-list-item strong {
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+.shared-list-item span {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.topbar-auth-button {
+  min-width: 8.7rem;
+}
+
 .session-warning {
   margin-bottom: 1rem;
 }
@@ -552,15 +619,6 @@
 .poster-stage {
   overflow-x: auto;
   padding-bottom: 0.5rem;
-}
-
-.export-stage {
-  position: fixed;
-  top: 0;
-  left: -10000px;
-  width: 1240px;
-  height: 1754px;
-  pointer-events: none;
 }
 
 .poster-canvas {
@@ -816,16 +874,6 @@
 
 .poster-footer p + p {
   margin-top: 0.6mm;
-}
-
-.poster-canvas--capture {
-  border-radius: 0;
-  box-shadow: none;
-}
-
-.poster-canvas--capture .poster-card {
-  height: 55mm;
-  min-height: 55mm;
 }
 
 .poster-canvas--export {
@@ -1235,6 +1283,7 @@
 
 @media (max-width: 1024px) {
   .manage-layout,
+  .public-layout,
   .panel--toolbar {
     grid-template-columns: 1fr;
     flex-direction: column;
@@ -1264,7 +1313,8 @@
   }
 
   .field-grid,
-  .stat-grid {
+  .stat-grid,
+  .public-layout {
     grid-template-columns: 1fr;
   }
 

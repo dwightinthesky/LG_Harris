@@ -1,6 +1,7 @@
 const SESSION_ID_PATTERN = /^[a-zA-Z0-9-]{8,}$/;
 const SESSION_KEY_PREFIX = 'catalogue-sessions/';
 const IMAGE_KEY_PREFIX = 'catalogue-images/';
+const SESSION_KEY_SUFFIX = '.json';
 const SESSION_CONTENT_TYPE = 'application/json; charset=utf-8';
 
 function createHttpError(status, message) {
@@ -32,7 +33,7 @@ export function assertProductId(productId) {
 }
 
 function buildSessionKey(sessionId) {
-  return `${SESSION_KEY_PREFIX}${sessionId}.json`;
+  return `${SESSION_KEY_PREFIX}${sessionId}${SESSION_KEY_SUFFIX}`;
 }
 
 function buildImageKey(sessionId, productId, extension) {
@@ -43,6 +44,23 @@ function buildImageKey(sessionId, productId, extension) {
 
 function normalizeText(value) {
   return String(value ?? '').trim();
+}
+
+function normalizeBoolean(value) {
+  return Boolean(value);
+}
+
+function normalizeSessionSettings(sessionData = {}) {
+  const ownerId = normalizeText(sessionData.ownerId);
+  const ownerName = normalizeText(sessionData.ownerName);
+  const fallbackName = ownerName ? `${ownerName}'s catalogue` : 'Catalogue';
+
+  return {
+    ownerId,
+    ownerName,
+    catalogName: normalizeText(sessionData.catalogName) || fallbackName,
+    isShared: normalizeBoolean(sessionData.isShared),
+  };
 }
 
 function normalizeProduct(product, fallbackId) {
@@ -64,11 +82,16 @@ function sanitizeSessionData(sessionId, sessionData) {
   const products = Array.isArray(sessionData?.products)
     ? sessionData.products.map((product, index) => normalizeProduct(product, `product-${index + 1}`))
     : [];
+  const settings = normalizeSessionSettings(sessionData);
 
   return {
     sessionId,
     createdAt: sessionData?.createdAt ?? null,
     updatedAt: sessionData?.updatedAt ?? null,
+    ownerId: settings.ownerId,
+    ownerName: settings.ownerName,
+    catalogName: settings.catalogName,
+    isShared: settings.isShared,
     products,
   };
 }
@@ -106,10 +129,15 @@ export async function writeSession(env, sessionId, sessionData) {
 
   const bucket = getStorageBucket(env);
   const updatedAt = new Date().toISOString();
+  const settings = normalizeSessionSettings(sessionData);
   const payload = {
     sessionId,
     createdAt: sessionData.createdAt ?? updatedAt,
     updatedAt,
+    ownerId: settings.ownerId,
+    ownerName: settings.ownerName,
+    catalogName: settings.catalogName,
+    isShared: settings.isShared,
     products: Array.isArray(sessionData.products)
       ? sessionData.products.map((product, index) => normalizeProduct(product, `product-${index + 1}`))
       : [],
@@ -151,16 +179,102 @@ function mergeProducts(existingProducts, incomingProducts) {
   });
 }
 
-export async function upsertSessionProducts(env, sessionId, incomingProducts) {
+export async function upsertSessionProducts(env, sessionId, incomingProducts, options = {}) {
   assertSessionId(sessionId);
 
   const current = await readSession(env, sessionId);
   const mergedProducts = mergeProducts(current?.products ?? [], incomingProducts);
+  const ownerId = current?.ownerId || normalizeText(options.ownerId);
+  const ownerName = current?.ownerName || normalizeText(options.ownerName);
+  const catalogName =
+    normalizeText(options.catalogName) ||
+    current?.catalogName ||
+    (ownerName ? `${ownerName}'s catalogue` : 'Catalogue');
+  const isShared = typeof options.isShared === 'boolean' ? options.isShared : Boolean(current?.isShared);
 
   return writeSession(env, sessionId, {
     createdAt: current?.createdAt ?? new Date().toISOString(),
+    ownerId,
+    ownerName,
+    catalogName,
+    isShared,
     products: mergedProducts,
   });
+}
+
+export async function updateSessionSettings(env, sessionId, settings = {}) {
+  assertSessionId(sessionId);
+
+  const current = await readSession(env, sessionId);
+  if (!current) {
+    throw createHttpError(404, 'Catalogue session not found.');
+  }
+
+  return writeSession(env, sessionId, {
+    createdAt: current.createdAt ?? new Date().toISOString(),
+    ownerId: normalizeText(settings.ownerId) || current.ownerId,
+    ownerName: normalizeText(settings.ownerName) || current.ownerName,
+    catalogName:
+      normalizeText(settings.catalogName) ||
+      current.catalogName ||
+      (current.ownerName ? `${current.ownerName}'s catalogue` : 'Catalogue'),
+    isShared: typeof settings.isShared === 'boolean' ? settings.isShared : Boolean(current.isShared),
+    products: current.products,
+  });
+}
+
+function sessionIdFromObjectKey(key) {
+  if (!key.startsWith(SESSION_KEY_PREFIX) || !key.endsWith(SESSION_KEY_SUFFIX)) {
+    return '';
+  }
+
+  return key.slice(SESSION_KEY_PREFIX.length, key.length - SESSION_KEY_SUFFIX.length);
+}
+
+function toPublicCatalogSummary(session) {
+  return {
+    sessionId: session.sessionId,
+    catalogName: session.catalogName,
+    ownerName: session.ownerName || 'LG Harris staff',
+    updatedAt: session.updatedAt,
+    productCount: Array.isArray(session.products) ? session.products.length : 0,
+    imageCount: Array.isArray(session.products)
+      ? session.products.filter((product) => Boolean(product.image)).length
+      : 0,
+  };
+}
+
+export async function listSharedCatalogues(env, { limit = 24 } = {}) {
+  const bucket = getStorageBucket(env);
+  const listing = await bucket.list({ prefix: SESSION_KEY_PREFIX, limit: 200 });
+  const sessions = [];
+
+  for (const object of listing.objects) {
+    const sessionId = sessionIdFromObjectKey(object.key);
+    if (!sessionId) {
+      continue;
+    }
+
+    try {
+      const session = await readSession(env, sessionId);
+      if (session?.isShared) {
+        sessions.push(session);
+      }
+    } catch (error) {
+      console.warn('Skipping unreadable catalogue session in shared listing', {
+        sessionId,
+        message: error.message,
+      });
+    }
+  }
+
+  sessions.sort((left, right) => {
+    const leftTime = Date.parse(left.updatedAt ?? '') || 0;
+    const rightTime = Date.parse(right.updatedAt ?? '') || 0;
+    return rightTime - leftTime;
+  });
+
+  return sessions.slice(0, Math.max(1, limit)).map(toPublicCatalogSummary);
 }
 
 export function getImageExtensionForMimeType(mimeType) {

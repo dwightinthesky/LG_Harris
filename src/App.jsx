@@ -10,6 +10,7 @@ import {
   Image as ImageIcon,
   LayoutTemplate,
   Loader2,
+  LogOut,
   PackagePlus,
   Pencil,
   QrCode,
@@ -26,7 +27,6 @@ const PREVIEW_LIMIT = 12;
 const POLL_INTERVAL_MS = 15000;
 const HIDDEN_POLL_INTERVAL_MS = 60000;
 const MAX_POLL_BACKOFF_MS = 120000;
-const SESSION_COOKIE_KEY = 'lg_harris_session';
 const SESSION_QUERY_KEY = 'session';
 const DEFAULT_SHARED_SESSION_ID = '979ac24e-e051-4ab5-9771-6bd8e7381c47';
 const SESSION_ID_PATTERN = /^[a-zA-Z0-9-]{8,}$/;
@@ -148,55 +148,6 @@ function getSessionIdFromUrl() {
   return new URL(window.location.href).searchParams.get(SESSION_QUERY_KEY) ?? '';
 }
 
-function getSessionIdFromCookie() {
-  if (typeof document === 'undefined') {
-    return '';
-  }
-
-  const cookieEntry = document.cookie
-    .split('; ')
-    .find((entry) => entry.startsWith(`${SESSION_COOKIE_KEY}=`));
-
-  if (!cookieEntry) {
-    return '';
-  }
-
-  return decodeURIComponent(cookieEntry.split('=').slice(1).join('='));
-}
-
-function persistSessionId(sessionId) {
-  if (typeof document === 'undefined' || !isValidSessionId(sessionId)) {
-    return;
-  }
-
-  document.cookie = `${SESSION_COOKIE_KEY}=${encodeURIComponent(sessionId)}; Path=/; Max-Age=2592000; SameSite=Lax`;
-}
-
-function canBootstrapSessionSource(source) {
-  return source === 'generated' || source === 'default-shared';
-}
-
-function resolveDesktopSession() {
-  if (typeof window === 'undefined') {
-    return { sessionId: '', source: 'server' };
-  }
-
-  const existing = getSessionIdFromUrl();
-  if (isValidSessionId(existing)) {
-    persistSessionId(existing);
-    return { sessionId: existing, source: 'url' };
-  }
-
-  const cookieSessionId = getSessionIdFromCookie();
-  if (cookieSessionId === DEFAULT_SHARED_SESSION_ID) {
-    persistSessionId(cookieSessionId);
-    return { sessionId: cookieSessionId, source: 'default-shared' };
-  }
-
-  persistSessionId(DEFAULT_SHARED_SESSION_ID);
-  return { sessionId: DEFAULT_SHARED_SESSION_ID, source: 'default-shared' };
-}
-
 function buildMobileUploadUrl(sessionId) {
   if (typeof window === 'undefined' || !sessionId) {
     return '';
@@ -206,6 +157,36 @@ function buildMobileUploadUrl(sessionId) {
   nextUrl.searchParams.set(SESSION_QUERY_KEY, sessionId);
   nextUrl.hash = '/upload';
   return nextUrl.toString();
+}
+
+function syncSessionQueryParam(sessionId) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const nextUrl = new URL(window.location.href);
+  if (sessionId) {
+    nextUrl.searchParams.set(SESSION_QUERY_KEY, sessionId);
+  } else {
+    nextUrl.searchParams.delete(SESSION_QUERY_KEY);
+  }
+  window.history.replaceState({}, '', nextUrl.toString());
+}
+
+function formatUpdatedAt(value) {
+  if (!value) {
+    return 'No updates yet';
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return 'No updates yet';
+  }
+
+  return new Intl.DateTimeFormat('en-GB', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date);
 }
 
 function isPageVisible() {
@@ -288,6 +269,38 @@ async function uploadCatalogImage(sessionId, productId, imageDataUrl, fileName) 
   });
 }
 
+async function fetchAuthSession() {
+  return requestJson('/api/auth-session');
+}
+
+async function loginAuthSession(username, password) {
+  return requestJson('/api/auth-session', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+async function logoutAuthSession() {
+  return requestJson('/api/auth-session', {
+    method: 'DELETE',
+  });
+}
+
+async function fetchPublicCatalogues() {
+  return requestJson('/api/catalog-public');
+}
+
+async function saveCatalogSettings(sessionId, { catalogName, isShared }) {
+  return requestJson('/api/catalog-settings', {
+    method: 'PUT',
+    body: JSON.stringify({
+      sessionId,
+      catalogName,
+      isShared,
+    }),
+  });
+}
+
 function readFileAsDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -337,6 +350,72 @@ async function convertBlobToDataUrl(blob) {
     reader.onerror = () => reject(new Error('That image could not be prepared.'));
     reader.readAsDataURL(blob);
   });
+}
+
+async function fetchImageAsDataUrl(imageUrl) {
+  if (!imageUrl) {
+    return '';
+  }
+
+  if (imageUrl.startsWith('data:')) {
+    return imageUrl;
+  }
+
+  const response = await fetch(imageUrl, {
+    cache: 'no-store',
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    throw new Error(`Could not load image (${response.status})`);
+  }
+
+  const blob = await response.blob();
+  return convertBlobToDataUrl(blob);
+}
+
+async function buildCapturePosterNode(sourceNode) {
+  const captureNode = sourceNode.cloneNode(true);
+  captureNode.classList.add('poster-canvas--capture');
+  captureNode.style.position = 'fixed';
+  captureNode.style.top = '0';
+  captureNode.style.left = '0';
+  captureNode.style.margin = '0';
+  captureNode.style.opacity = '0';
+  captureNode.style.pointerEvents = 'none';
+  captureNode.style.zIndex = '-1';
+
+  document.body.appendChild(captureNode);
+
+  const sourceImages = Array.from(sourceNode.querySelectorAll('img'));
+  const captureImages = Array.from(captureNode.querySelectorAll('img'));
+
+  await Promise.all(
+    captureImages.map(async (captureImage, index) => {
+      const sourceImage = sourceImages[index];
+      if (!sourceImage) {
+        return;
+      }
+
+      const sourceUrl = sourceImage.currentSrc || sourceImage.src || '';
+      if (!sourceUrl) {
+        return;
+      }
+
+      try {
+        captureImage.src = await fetchImageAsDataUrl(sourceUrl);
+      } catch (error) {
+        console.warn('Capture image fallback to original URL', sourceUrl, error);
+        captureImage.src = sourceUrl;
+      }
+    }),
+  );
+
+  if (document.fonts?.ready) {
+    await document.fonts.ready;
+  }
+  await waitForElementImages(captureNode);
+
+  return captureNode;
 }
 
 function sampleBackgroundColour(data, width, height) {
@@ -588,13 +667,23 @@ function PosterCard({ product }) {
   );
 }
 
-function CatalogPoster({ products, mode = 'preview', posterRef = null }) {
+function CatalogPoster({
+  products,
+  mode = 'preview',
+  posterRef = null,
+  catalogName = '',
+  className = '',
+}) {
   const isExportMode = mode === 'export';
+  const headerKicker = catalogName?.trim() || 'LG Harris customer catalogue';
 
   return (
-    <div ref={posterRef} className={`poster-canvas ${isExportMode ? 'poster-canvas--export' : ''}`}>
+    <div
+      ref={posterRef}
+      className={`poster-canvas ${isExportMode ? 'poster-canvas--export' : ''} ${className}`.trim()}
+    >
       <header className="poster-header">
-        <span className="poster-kicker">LG Harris customer catalogue</span>
+        <span className="poster-kicker">{headerKicker}</span>
         <h2 className="poster-title">Premium Dust Sheets and Tarpaulins</h2>
         <p className="poster-subtitle">
           Prepared by LG Harris for customer reference and sales conversations
@@ -910,12 +999,6 @@ export default function App() {
   const pollFailureCountRef = useRef(0);
   const sessionBootstrapAllowedRef = useRef(false);
 
-  const initialDesktopSessionRef = useRef(null);
-  if (initialDesktopSessionRef.current === null && typeof window !== 'undefined' && getHashRoute() !== '/upload') {
-    initialDesktopSessionRef.current = resolveDesktopSession();
-    sessionBootstrapAllowedRef.current = canBootstrapSessionSource(initialDesktopSessionRef.current.source);
-  }
-
   const [route, setRoute] = useState(() => getHashRoute());
   const [sessionId, setSessionId] = useState(() => {
     if (typeof window === 'undefined') {
@@ -928,18 +1011,24 @@ export default function App() {
       return isValidSessionId(uploadSessionId) ? uploadSessionId : DEFAULT_SHARED_SESSION_ID;
     }
 
-    if (initialDesktopSessionRef.current) {
-      return initialDesktopSessionRef.current.sessionId;
-    }
-
-    const resolved = resolveDesktopSession();
-    sessionBootstrapAllowedRef.current = canBootstrapSessionSource(resolved.source);
-    return resolved.sessionId;
+    sessionBootstrapAllowedRef.current = false;
+    const initialSessionId = getSessionIdFromUrl();
+    return isValidSessionId(initialSessionId) ? initialSessionId : '';
   });
   const [products, setProducts] = useState(cloneDefaultProducts);
   const [draft, setDraft] = useState(createEmptyProduct);
   const [draftImageName, setDraftImageName] = useState('');
   const [editingProductId, setEditingProductId] = useState('');
+  const [authUser, setAuthUser] = useState(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [loginDraft, setLoginDraft] = useState({ username: '', password: '' });
+  const [authError, setAuthError] = useState('');
+  const [sharedCatalogues, setSharedCatalogues] = useState([]);
+  const [isLoadingSharedCatalogues, setIsLoadingSharedCatalogues] = useState(false);
+  const [catalogName, setCatalogName] = useState('My catalogue');
+  const [isSharedCatalog, setIsSharedCatalog] = useState(false);
+  const [isSavingCatalogSettings, setIsSavingCatalogSettings] = useState(false);
   const [currentView, setCurrentView] = useState('manage');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
@@ -956,6 +1045,8 @@ export default function App() {
   const [copiedUploadLink, setCopiedUploadLink] = useState(false);
 
   const isMobileUploadRoute = route === '/upload';
+  const isStaffAuthenticated = Boolean(authUser);
+  const isPublicVisitor = !isMobileUploadRoute && !isStaffAuthenticated;
   const previewProducts = useMemo(() => products.slice(0, PREVIEW_LIMIT), [products]);
   const hiddenProducts = Math.max(products.length - PREVIEW_LIMIT, 0);
   const mobileUploadUrl = useMemo(() => buildMobileUploadUrl(sessionId), [sessionId]);
@@ -963,6 +1054,137 @@ export default function App() {
     () => products.find((product) => product.id === editingProductId) ?? null,
     [editingProductId, products],
   );
+  const selectedPublicCatalogue = useMemo(
+    () => sharedCatalogues.find((catalogue) => catalogue.sessionId === sessionId) ?? null,
+    [sessionId, sharedCatalogues],
+  );
+
+  useEffect(() => {
+    if (isMobileUploadRoute) {
+      setIsAuthChecking(false);
+      return;
+    }
+
+    let isActive = true;
+
+    async function loadAuthSession() {
+      setIsAuthChecking(true);
+      setAuthError('');
+
+      try {
+        const authSession = await fetchAuthSession();
+        if (!isActive) {
+          return;
+        }
+
+        if (authSession?.authenticated && authSession.user) {
+          setAuthUser(authSession.user);
+          sessionBootstrapAllowedRef.current = true;
+          setSessionId(authSession.user.sessionId);
+          setCatalogName(`${authSession.user.displayName}'s catalogue`);
+          setIsSharedCatalog(false);
+          setProducts([]);
+          setSessionError('');
+          setCurrentView('manage');
+          setSyncMessage('Signed in to your private catalogue workspace');
+          syncSessionQueryParam('');
+        } else {
+          setAuthUser(null);
+          sessionBootstrapAllowedRef.current = false;
+          setSessionId('');
+          setProducts([]);
+          setCatalogName('');
+          setIsSharedCatalog(false);
+          setSessionError('');
+          setCurrentView('preview');
+          setSyncMessage('Viewing shared catalogues');
+        }
+      } catch (error) {
+        if (!isActive) {
+          return;
+        }
+
+        setAuthUser(null);
+        sessionBootstrapAllowedRef.current = false;
+        setSessionId('');
+        setProducts([]);
+        setCatalogName('');
+        setIsSharedCatalog(false);
+        setAuthError(error.message);
+      } finally {
+        if (isActive) {
+          setIsAuthChecking(false);
+        }
+      }
+    }
+
+    loadAuthSession();
+
+    return () => {
+      isActive = false;
+    };
+  }, [isMobileUploadRoute]);
+
+  useEffect(() => {
+    if (isMobileUploadRoute || isAuthChecking || isStaffAuthenticated) {
+      return;
+    }
+
+    let isActive = true;
+
+    async function loadSharedCatalogues() {
+      setIsLoadingSharedCatalogues(true);
+      setSessionError('');
+
+      try {
+        const response = await fetchPublicCatalogues();
+        if (!isActive) {
+          return;
+        }
+
+        const catalogues = Array.isArray(response?.catalogues) ? response.catalogues : [];
+        setSharedCatalogues(catalogues);
+
+        if (!catalogues.length) {
+          setSessionId('');
+          setProducts([]);
+          setCatalogName('');
+          setIsSharedCatalog(false);
+          setIsBootstrapping(false);
+          setSyncMessage('No shared catalogues are published yet');
+          return;
+        }
+
+        const requestedSessionId = getSessionIdFromUrl();
+        setSessionId((currentSessionId) =>
+          catalogues.some((catalogue) => catalogue.sessionId === currentSessionId)
+            ? currentSessionId
+            : isValidSessionId(requestedSessionId) &&
+                catalogues.some((catalogue) => catalogue.sessionId === requestedSessionId)
+              ? requestedSessionId
+            : catalogues[0].sessionId,
+        );
+        sessionBootstrapAllowedRef.current = false;
+      } catch (error) {
+        if (!isActive) {
+          return;
+        }
+
+        setSharedCatalogues([]);
+        setSessionError(error.message);
+      } finally {
+        if (isActive) {
+          setIsLoadingSharedCatalogues(false);
+        }
+      }
+    }
+
+    loadSharedCatalogues();
+
+    return () => {
+      isActive = false;
+    };
+  }, [isAuthChecking, isMobileUploadRoute, isStaffAuthenticated]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -975,15 +1197,14 @@ export default function App() {
 
       if (nextRoute === '/upload') {
         const nextSessionId = getSessionIdFromUrl();
-        if (isValidSessionId(nextSessionId)) {
-          persistSessionId(nextSessionId);
-        }
         sessionBootstrapAllowedRef.current = false;
         setSessionId(isValidSessionId(nextSessionId) ? nextSessionId : DEFAULT_SHARED_SESSION_ID);
       } else {
-        const resolved = resolveDesktopSession();
-        sessionBootstrapAllowedRef.current = canBootstrapSessionSource(resolved.source);
-        setSessionId(resolved.sessionId);
+        const signedInSessionId = authUser?.sessionId ?? '';
+        sessionBootstrapAllowedRef.current = Boolean(signedInSessionId);
+        if (signedInSessionId) {
+          setSessionId(signedInSessionId);
+        }
       }
     }
 
@@ -995,16 +1216,10 @@ export default function App() {
       window.removeEventListener('hashchange', syncLocation);
       window.removeEventListener('popstate', syncLocation);
     };
-  }, []);
+  }, [authUser]);
 
   useEffect(() => {
-    if (sessionId) {
-      persistSessionId(sessionId);
-    }
-  }, [sessionId]);
-
-  useEffect(() => {
-    if (isMobileUploadRoute || !sessionId) {
+    if (isMobileUploadRoute || isAuthChecking || !sessionId) {
       setIsBootstrapping(false);
       return;
     }
@@ -1044,8 +1259,20 @@ export default function App() {
         const snapshot = getProductsSnapshot(nextProducts);
         serverSnapshotRef.current = snapshot;
         setProducts(nextProducts);
+        setCatalogName(
+          session.catalogName ||
+            (session.ownerName ? `${session.ownerName}'s catalogue` : 'LG Harris catalogue'),
+        );
+        setIsSharedCatalog(Boolean(session.isShared));
         pollFailureCountRef.current = 0;
-        setSyncMessage('Shared catalogue ready');
+        setSyncMessage(
+          isStaffAuthenticated
+            ? 'Signed in to your private catalogue workspace'
+            : 'Viewing shared catalogue',
+        );
+        if (!isStaffAuthenticated) {
+          syncSessionQueryParam(session.sessionId);
+        }
       } catch (error) {
         if (!isActive) {
           return;
@@ -1065,10 +1292,10 @@ export default function App() {
     return () => {
       isActive = false;
     };
-  }, [isMobileUploadRoute, sessionId]);
+  }, [isAuthChecking, isMobileUploadRoute, isStaffAuthenticated, sessionId]);
 
   useEffect(() => {
-    if (isMobileUploadRoute || !sessionId || isBootstrapping) {
+    if (isMobileUploadRoute || isAuthChecking || !isStaffAuthenticated || !sessionId || isBootstrapping) {
       return undefined;
     }
 
@@ -1102,10 +1329,10 @@ export default function App() {
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [isBootstrapping, isMobileUploadRoute, products, sessionId]);
+  }, [isAuthChecking, isBootstrapping, isMobileUploadRoute, isStaffAuthenticated, products, sessionId]);
 
   useEffect(() => {
-    if (isMobileUploadRoute || !sessionId || isBootstrapping) {
+    if (isMobileUploadRoute || isAuthChecking || !sessionId || isBootstrapping) {
       return undefined;
     }
 
@@ -1167,7 +1394,7 @@ export default function App() {
       isCancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [isBootstrapping, isMobileUploadRoute, sessionId]);
+  }, [isAuthChecking, isBootstrapping, isMobileUploadRoute, sessionId]);
 
   useEffect(() => {
     if (!editingProductId) {
@@ -1464,8 +1691,120 @@ export default function App() {
     }
   }
 
+  function updateLoginDraft(field, value) {
+    setLoginDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleLoginSubmit(event) {
+    event.preventDefault();
+
+    const username = loginDraft.username.trim();
+    const password = loginDraft.password;
+    if (!username || !password) {
+      setAuthError('Username and password are required.');
+      return;
+    }
+
+    setIsLoggingIn(true);
+    setAuthError('');
+
+    try {
+      const response = await loginAuthSession(username, password);
+      if (!response?.authenticated || !response.user) {
+        throw new Error('Sign-in failed. Please try again.');
+      }
+
+      const user = response.user;
+      setAuthUser(user);
+      sessionBootstrapAllowedRef.current = true;
+      setSessionId(user.sessionId);
+      setProducts([]);
+      setSharedCatalogues([]);
+      setCatalogName(`${user.displayName}'s catalogue`);
+      setIsSharedCatalog(false);
+      setSessionError('');
+      setLoginDraft({ username: '', password: '' });
+      setCurrentView('manage');
+      setSyncMessage('Signed in to your private catalogue workspace');
+      setFormMessage('Signed in successfully. Loading your private catalogue session...');
+      syncSessionQueryParam('');
+    } catch (error) {
+      setAuthError(error.message);
+    } finally {
+      setIsLoggingIn(false);
+    }
+  }
+
+  async function handleLogout() {
+    setIsLoggingIn(true);
+    setAuthError('');
+
+    try {
+      await logoutAuthSession();
+    } catch (error) {
+      console.warn('Logout request failed', error);
+    } finally {
+      setAuthUser(null);
+      sessionBootstrapAllowedRef.current = false;
+      setSessionId('');
+      setProducts([]);
+      setCatalogName('');
+      setIsSharedCatalog(false);
+      setCurrentView('preview');
+      setSyncMessage('Viewing shared catalogues');
+      setIsLoggingIn(false);
+      syncSessionQueryParam('');
+    }
+  }
+
+  function selectPublicCatalogue(nextSessionId) {
+    if (!nextSessionId || nextSessionId === sessionId) {
+      return;
+    }
+
+    sessionBootstrapAllowedRef.current = false;
+    setSessionId(nextSessionId);
+    setCurrentView('preview');
+    setSessionError('');
+    syncSessionQueryParam(nextSessionId);
+  }
+
+  async function handleSaveCatalogueSettings() {
+    if (!isStaffAuthenticated || !sessionId) {
+      return;
+    }
+
+    const trimmedName = catalogName.trim();
+    if (!trimmedName) {
+      setSessionError('Catalogue name cannot be empty.');
+      return;
+    }
+
+    setIsSavingCatalogSettings(true);
+    setSessionError('');
+
+    try {
+      const updatedSession = await saveCatalogSettings(sessionId, {
+        catalogName: trimmedName,
+        isShared: isSharedCatalog,
+      });
+
+      setCatalogName(updatedSession.catalogName || trimmedName);
+      setIsSharedCatalog(Boolean(updatedSession.isShared));
+      setSyncMessage(
+        updatedSession.isShared
+          ? 'Catalogue settings saved and shared publicly'
+          : 'Catalogue settings saved as private',
+      );
+    } catch (error) {
+      setSessionError(error.message);
+    } finally {
+      setIsSavingCatalogSettings(false);
+    }
+  }
+
   async function handleDownloadPDF() {
-    if (previewProducts.length === 0 || isGenerating || !posterRef.current) {
+    if (previewProducts.length === 0 || isGenerating) {
       return;
     }
 
@@ -1489,15 +1828,26 @@ export default function App() {
       }
       await waitForElementImages(posterNode);
 
-      const canvas = await html2canvas(posterNode, {
-        scale: 2,
-        useCORS: true,
-        foreignObjectRendering: true,
-        logging: false,
-        backgroundColor: '#f4efe6',
-        windowWidth: posterNode.scrollWidth,
-        windowHeight: posterNode.scrollHeight,
-      });
+      const captureNode = await buildCapturePosterNode(posterNode);
+
+      let canvas;
+      try {
+        canvas = await html2canvas(captureNode, {
+          scale: 2,
+          useCORS: false,
+          foreignObjectRendering: false,
+          logging: false,
+          backgroundColor: '#f4efe6',
+          removeContainer: true,
+          imageTimeout: 20000,
+          windowWidth: captureNode.offsetWidth,
+          windowHeight: captureNode.offsetHeight,
+          scrollX: 0,
+          scrollY: 0,
+        });
+      } finally {
+        captureNode.remove();
+      }
 
       const pageWidth = 210;
       const pageHeight = 297;
@@ -1541,30 +1891,191 @@ export default function App() {
         <div className="topbar-actions">
           <span className="save-pill">
             <Cloud size={14} />
-            {syncMessage}
+            {isStaffAuthenticated ? syncMessage : 'Public shared catalogue view'}
           </span>
 
-          <div className="view-switch" role="tablist" aria-label="Catalogue views">
-            <button
-              type="button"
-              className={currentView === 'manage' ? 'is-active' : ''}
-              onClick={() => setCurrentView('manage')}
-            >
-              Manage
-            </button>
-            <button
-              type="button"
-              className={currentView === 'preview' ? 'is-active' : ''}
-              onClick={() => setCurrentView('preview')}
-            >
-              Preview
-            </button>
-          </div>
+          {isStaffAuthenticated ? (
+            <>
+              <div className="view-switch" role="tablist" aria-label="Catalogue views">
+                <button
+                  type="button"
+                  className={currentView === 'manage' ? 'is-active' : ''}
+                  onClick={() => setCurrentView('manage')}
+                >
+                  Manage
+                </button>
+                <button
+                  type="button"
+                  className={currentView === 'preview' ? 'is-active' : ''}
+                  onClick={() => setCurrentView('preview')}
+                >
+                  Preview
+                </button>
+              </div>
+
+              <button
+                type="button"
+                className="button button--secondary topbar-auth-button"
+                onClick={handleLogout}
+                disabled={isLoggingIn}
+              >
+                {isLoggingIn ? <Loader2 className="spin" size={18} /> : <LogOut size={18} />}
+                {isLoggingIn ? 'Signing out...' : 'Sign out'}
+              </button>
+            </>
+          ) : null}
         </div>
       </header>
 
       <main className="page-shell">
-        {currentView === 'manage' ? (
+        {isAuthChecking ? (
+          <section className="panel no-print">
+            <div className="mobile-loading">
+              <Loader2 className="spin" size={20} />
+              <span>Checking staff session...</span>
+            </div>
+          </section>
+        ) : isPublicVisitor ? (
+          <>
+            {authError ? (
+              <div className="warning-banner no-print session-warning">
+                <AlertTriangle size={18} />
+                <p>{authError}</p>
+              </div>
+            ) : null}
+
+            <section className="public-layout no-print">
+              <article className="panel panel--auth">
+                <div className="section-heading section-heading--compact">
+                  <span className="eyebrow">Staff access</span>
+                  <h2>Sign in to manage your own catalogue.</h2>
+                  <p>
+                    Each staff account has a separate catalogue. You can keep it private or share it
+                    publicly on this page.
+                  </p>
+                </div>
+
+                <form className="product-form" onSubmit={handleLoginSubmit}>
+                  <label className="field">
+                    <span>Username</span>
+                    <input
+                      required
+                      type="text"
+                      autoComplete="username"
+                      placeholder="staff.username"
+                      value={loginDraft.username}
+                      onChange={(event) => updateLoginDraft('username', event.target.value)}
+                      disabled={isLoggingIn}
+                    />
+                  </label>
+
+                  <label className="field">
+                    <span>Password</span>
+                    <input
+                      required
+                      type="password"
+                      autoComplete="current-password"
+                      placeholder="••••••••"
+                      value={loginDraft.password}
+                      onChange={(event) => updateLoginDraft('password', event.target.value)}
+                      disabled={isLoggingIn}
+                    />
+                  </label>
+
+                  <button className="button button--primary" type="submit" disabled={isLoggingIn}>
+                    {isLoggingIn ? <Loader2 className="spin" size={18} /> : <ArrowRight size={18} />}
+                    {isLoggingIn ? 'Signing in...' : 'Sign in'}
+                  </button>
+                </form>
+
+                {authError ? <p className="status-error">{authError}</p> : null}
+              </article>
+
+              <aside className="panel panel--shared">
+                <div className="section-heading section-heading--compact">
+                  <span className="eyebrow">Shared catalogues</span>
+                  <h2>Published staff catalogues</h2>
+                  <p>Only catalogues marked as shared by staff are listed here.</p>
+                </div>
+
+                {isLoadingSharedCatalogues ? (
+                  <div className="mobile-loading">
+                    <Loader2 className="spin" size={18} />
+                    <span>Loading shared catalogues...</span>
+                  </div>
+                ) : sharedCatalogues.length ? (
+                  <div className="shared-list">
+                    {sharedCatalogues.map((catalogue) => (
+                      <button
+                        key={catalogue.sessionId}
+                        type="button"
+                        className={`shared-list-item ${
+                          catalogue.sessionId === sessionId ? 'is-active' : ''
+                        }`}
+                        onClick={() => selectPublicCatalogue(catalogue.sessionId)}
+                      >
+                        <strong>{catalogue.catalogName || 'LG Harris catalogue'}</strong>
+                        <span>{catalogue.ownerName || 'LG Harris staff'}</span>
+                        <span>
+                          {catalogue.productCount || 0} products • {catalogue.imageCount || 0}{' '}
+                          images
+                        </span>
+                        <span>Updated {formatUpdatedAt(catalogue.updatedAt)}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="subtle-banner">
+                    No shared catalogues are available yet. Staff can sign in and enable sharing.
+                  </div>
+                )}
+              </aside>
+            </section>
+
+            <section className="preview-shell">
+              {sessionError ? (
+                <div className="warning-banner no-print session-warning">
+                  <AlertTriangle size={18} />
+                  <p>{sessionError}</p>
+                </div>
+              ) : null}
+
+              <div className="panel panel--toolbar no-print">
+                <div className="toolbar-copy">
+                  <span className="eyebrow">Public catalogue preview</span>
+                  <h2>{selectedPublicCatalogue?.catalogName || catalogName || 'LG Harris catalogue'}</h2>
+                  <p>
+                    {previewProducts.length} product{previewProducts.length === 1 ? '' : 's'} in this
+                    shared catalogue.
+                  </p>
+                </div>
+
+                <div className="toolbar-actions">
+                  <button
+                    type="button"
+                    className="button button--primary"
+                    disabled={isGenerating || previewProducts.length === 0}
+                    onClick={handleDownloadPDF}
+                  >
+                    {isGenerating ? <Loader2 className="spin" size={18} /> : <Download size={18} />}
+                    {isGenerating ? 'Generating PDF...' : 'Export PDF'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="poster-stage">
+                <CatalogPoster
+                  products={previewProducts}
+                  mode="export"
+                  posterRef={posterRef}
+                  catalogName={catalogName}
+                />
+              </div>
+
+              {exportError ? <p className="status-error no-print">{exportError}</p> : null}
+            </section>
+          </>
+        ) : currentView === 'manage' ? (
           <>
             {sessionError ? (
               <div className="warning-banner no-print session-warning">
@@ -1744,6 +2255,40 @@ export default function App() {
                 <div className="section-heading section-heading--compact">
                   <span className="eyebrow">Catalogue health</span>
                   <h2>Keep the A4 catalogue page tidy.</h2>
+                </div>
+
+                <div className="catalogue-settings">
+                  <label className="field">
+                    <span>Catalogue name</span>
+                    <input
+                      type="text"
+                      value={catalogName}
+                      onChange={(event) => setCatalogName(event.target.value)}
+                      disabled={isBootstrapping || isSavingCatalogSettings}
+                    />
+                  </label>
+                  <label className="option-check">
+                    <input
+                      type="checkbox"
+                      checked={isSharedCatalog}
+                      onChange={(event) => setIsSharedCatalog(event.target.checked)}
+                      disabled={isBootstrapping || isSavingCatalogSettings}
+                    />
+                    <span>Share this catalogue publicly on lg-harris.pages.dev</span>
+                  </label>
+                  <button
+                    type="button"
+                    className="button button--secondary"
+                    onClick={handleSaveCatalogueSettings}
+                    disabled={isBootstrapping || isSavingCatalogSettings}
+                  >
+                    {isSavingCatalogSettings ? (
+                      <Loader2 className="spin" size={18} />
+                    ) : (
+                      <Cloud size={18} />
+                    )}
+                    {isSavingCatalogSettings ? 'Saving settings...' : 'Save catalogue settings'}
+                  </button>
                 </div>
 
                 <div className="stat-grid">
@@ -1928,7 +2473,12 @@ export default function App() {
             ) : null}
 
             <div className="poster-stage">
-              <CatalogPoster products={previewProducts} mode="export" posterRef={posterRef} />
+              <CatalogPoster
+                products={previewProducts}
+                mode="export"
+                posterRef={posterRef}
+                catalogName={catalogName}
+              />
             </div>
 
             {exportError ? <p className="status-error no-print">{exportError}</p> : null}

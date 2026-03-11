@@ -1,3 +1,4 @@
+import { getAuthenticatedUser, requireAuthenticatedUser } from '../_auth.js';
 import { assertSessionId, readSession, upsertSessionProducts } from '../_catalog-store.js';
 import { jsonResponse, parseJsonBody, toErrorResponse } from '../_http.js';
 
@@ -24,6 +25,14 @@ async function handleGet(context) {
       return jsonResponse({ error: 'Catalogue session not found.' }, { status: 404 });
     }
 
+    const user = await getAuthenticatedUser(request, env);
+    const canRead =
+      session.isShared ||
+      (Boolean(user) && (!session.ownerId || session.ownerId === user.userId));
+    if (!canRead) {
+      return jsonResponse({ error: 'This catalogue is private.' }, { status: 403 });
+    }
+
     return jsonResponse(session);
   } catch (error) {
     console.error('catalog-session GET failed', {
@@ -40,6 +49,7 @@ async function handlePut(context) {
   const { request, env } = context;
 
   try {
+    const user = await requireAuthenticatedUser(request, env);
     const body = await parseJsonBody(request);
     const sessionId = body.sessionId;
     assertSessionId(sessionId);
@@ -48,7 +58,15 @@ async function handlePut(context) {
       return jsonResponse({ error: 'Products payload must be an array.' }, { status: 400 });
     }
 
-    const session = await upsertSessionProducts(env, sessionId, body.products);
+    const current = await readSession(env, sessionId);
+    if (current?.ownerId && current.ownerId !== user.userId) {
+      return jsonResponse({ error: 'You do not have permission to edit this catalogue.' }, { status: 403 });
+    }
+
+    const session = await upsertSessionProducts(env, sessionId, body.products, {
+      ownerId: user.userId,
+      ownerName: user.displayName,
+    });
     return jsonResponse(session);
   } catch (error) {
     console.error('catalog-session PUT failed', {

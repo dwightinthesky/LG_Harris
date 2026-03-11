@@ -36,6 +36,23 @@ npm run dev:full
 5. Add an R2 binding in Pages settings:
 - Variable name: `CATALOGUE_BUCKET`
 - Bucket: your production bucket
+6. Add authentication environment variables in Pages settings:
+- `AUTH_SECRET`: a long random string used to sign staff auth cookies.
+- `STAFF_ACCOUNTS_JSON` (recommended): JSON object of staff accounts.
+  Example:
+  ```json
+  {
+    "alice": { "password": "strong-pass-1", "name": "Alice" },
+    "bob": { "password": "strong-pass-2", "name": "Bob" }
+  }
+  ```
+- or `STAFF_LOGIN_PASSWORD` for a shared password fallback (less secure).
+
+## Sharing model
+
+- Staff users sign in and manage their own catalogue session.
+- Each staff catalogue can be toggled between private/shared from the manage view.
+- Only shared catalogues appear on the public homepage.
 
 ## Production deploy
 
