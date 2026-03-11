@@ -417,47 +417,61 @@ async function inlinePosterImagesForCapture(posterNode) {
   };
 }
 
-function isCanvasLikelyBlank(canvas) {
+function getCanvasDetailScore(canvas) {
   const context = canvas.getContext('2d');
-  if (!context) {
-    return false;
+  if (!context || !canvas.width || !canvas.height) {
+    return 0;
   }
 
-  const { width, height } = canvas;
-  if (!width || !height) {
-    return true;
+  const sampleWidth = Math.max(32, Math.min(160, canvas.width));
+  const sampleHeight = Math.max(32, Math.min(160, canvas.height));
+  const sampleCanvas = document.createElement('canvas');
+  sampleCanvas.width = sampleWidth;
+  sampleCanvas.height = sampleHeight;
+
+  const sampleContext = sampleCanvas.getContext('2d');
+  if (!sampleContext) {
+    return 0;
   }
 
-  const gridSize = 8;
-  let minRed = 255;
-  let maxRed = 0;
-  let minGreen = 255;
-  let maxGreen = 0;
-  let minBlue = 255;
-  let maxBlue = 0;
-  let minAlpha = 255;
-  let maxAlpha = 0;
+  sampleContext.drawImage(canvas, 0, 0, sampleWidth, sampleHeight);
+  const { data } = sampleContext.getImageData(0, 0, sampleWidth, sampleHeight);
+  const luminance = new Float32Array(sampleWidth * sampleHeight);
 
-  for (let row = 0; row <= gridSize; row += 1) {
-    for (let column = 0; column <= gridSize; column += 1) {
-      const x = Math.min(width - 1, Math.round((column / gridSize) * (width - 1)));
-      const y = Math.min(height - 1, Math.round((row / gridSize) * (height - 1)));
-      const sample = context.getImageData(x, y, 1, 1).data;
+  let total = 0;
+  for (let index = 0; index < data.length; index += 4) {
+    const red = data[index];
+    const green = data[index + 1];
+    const blue = data[index + 2];
+    const alpha = data[index + 3] / 255;
+    const lum = (0.2126 * red + 0.7152 * green + 0.0722 * blue) * alpha;
+    const pixelIndex = index / 4;
+    luminance[pixelIndex] = lum;
+    total += lum;
+  }
 
-      minRed = Math.min(minRed, sample[0]);
-      maxRed = Math.max(maxRed, sample[0]);
-      minGreen = Math.min(minGreen, sample[1]);
-      maxGreen = Math.max(maxGreen, sample[1]);
-      minBlue = Math.min(minBlue, sample[2]);
-      maxBlue = Math.max(maxBlue, sample[2]);
-      minAlpha = Math.min(minAlpha, sample[3]);
-      maxAlpha = Math.max(maxAlpha, sample[3]);
+  const pixelCount = sampleWidth * sampleHeight;
+  const mean = total / pixelCount;
+  let variance = 0;
+  let edgeEnergy = 0;
+
+  for (let y = 0; y < sampleHeight; y += 1) {
+    for (let x = 0; x < sampleWidth; x += 1) {
+      const idx = y * sampleWidth + x;
+      const value = luminance[idx];
+      const delta = value - mean;
+      variance += delta * delta;
+
+      if (x > 0) {
+        edgeEnergy += Math.abs(value - luminance[idx - 1]);
+      }
+      if (y > 0) {
+        edgeEnergy += Math.abs(value - luminance[idx - sampleWidth]);
+      }
     }
   }
 
-  const colourVariance =
-    (maxRed - minRed) + (maxGreen - minGreen) + (maxBlue - minBlue) + (maxAlpha - minAlpha);
-  return colourVariance < 8;
+  return variance / pixelCount + edgeEnergy / pixelCount;
 }
 
 function sampleBackgroundColour(data, width, height) {
@@ -1942,17 +1956,40 @@ export default function App() {
           imageTimeout: 20000,
         };
 
-        canvas = await html2canvas(posterNode, {
-          ...baseOptions,
-          foreignObjectRendering: true,
-        });
+        const candidates = [];
 
-        if (isCanvasLikelyBlank(canvas)) {
-          canvas = await html2canvas(posterNode, {
+        try {
+          const foreignObjectCanvas = await html2canvas(posterNode, {
+            ...baseOptions,
+            foreignObjectRendering: true,
+          });
+          candidates.push({
+            canvas: foreignObjectCanvas,
+            score: getCanvasDetailScore(foreignObjectCanvas),
+          });
+        } catch (foreignObjectError) {
+          console.warn('foreignObject PDF capture failed; falling back to standard capture.', foreignObjectError);
+        }
+
+        try {
+          const standardCanvas = await html2canvas(posterNode, {
             ...baseOptions,
             foreignObjectRendering: false,
           });
+          candidates.push({
+            canvas: standardCanvas,
+            score: getCanvasDetailScore(standardCanvas),
+          });
+        } catch (standardError) {
+          console.warn('Standard PDF capture failed.', standardError);
         }
+
+        if (!candidates.length) {
+          throw new Error('Could not capture the poster for export.');
+        }
+
+        candidates.sort((left, right) => right.score - left.score);
+        canvas = candidates[0].canvas;
       } finally {
         restoreImages();
       }
