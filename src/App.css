@@ -683,6 +683,9 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.5mm 1.2mm;
+  max-width: 100%;
   min-height: 5.2mm;
   margin-top: 2mm;
   padding: 1.25mm 2.8mm;
@@ -691,6 +694,7 @@
   line-height: 1.14;
   font-weight: 700;
   transform: translateY(-0.12mm);
+  text-wrap: balance;
   color: #fff;
   background: linear-gradient(135deg, var(--accent), #df7b4a);
 }
@@ -932,6 +936,7 @@
   margin-top: 11px;
   padding: 7px 16px;
   min-height: 30px;
+  gap: 2px 8px;
   font-size: 14px;
   line-height: 1.14;
   transform: translateY(-1px);

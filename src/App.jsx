@@ -687,7 +687,11 @@ function CatalogPoster({
         <p className="poster-subtitle">
           Prepared by LG Harris for customer reference and sales conversations
         </p>
-        <div className="poster-chip">Current trade prices across trusted brands</div>
+        <div className="poster-chip">
+          <span>Current trade prices across trusted brands</span>
+          <span aria-hidden="true">•</span>
+          <span>{CATALOGUE_FOOTER_MINIMUM_NOTE}</span>
+        </div>
       </header>
 
       <section
@@ -706,7 +710,6 @@ function CatalogPoster({
 
       <footer className="poster-footer">
         <p>{CATALOGUE_FOOTER_REFERENCE_NOTE}</p>
-        <p>{CATALOGUE_FOOTER_MINIMUM_NOTE}</p>
         <p>{CATALOGUE_FOOTER_EXCLUSIONS}</p>
       </footer>
     </div>
