@@ -82,18 +82,11 @@ function getStockImageForCode(code) {
   return STOCK_IMAGE_BY_CODE[normalizeProductCode(code)] ?? '';
 }
 
-function isSessionUploadedImage(image) {
-  return typeof image === 'string' && image.startsWith('/api/catalog-image?');
-}
-
 function buildProduct(product, fallbackId = createId()) {
   const code = product.code?.trim() ?? '';
   const sourceImage = typeof product.image === 'string' ? product.image : '';
   const stockImage = getStockImageForCode(code);
-  const image =
-    sourceImage && (isDataUrlImage(sourceImage) || isSessionUploadedImage(sourceImage))
-      ? sourceImage
-      : stockImage || sourceImage;
+  const image = stockImage || sourceImage;
 
   return {
     id: product.id ?? fallbackId,
