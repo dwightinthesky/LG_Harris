@@ -37,6 +37,7 @@ const CATALOGUE_FOOTER_MINIMUM_NOTE =
   'Minimum order: 2 cases to be eligible for the quoted price.';
 const CATALOGUE_FOOTER_EXCLUSIONS =
   'Excludes: Stax, Decco, Fortis, H&B, IBC, IBMG, NBG, Trago Mills, Home Hardware.';
+const TILTED_IMAGE_CODES = new Set(['101064202', '3854201-50']);
 const STOCK_IMAGE_BY_CODE = Object.freeze({
   '101064201': '/catalogue-images/101064201.webp',
   '101064202': '/catalogue-images/101064202.webp',
@@ -80,6 +81,10 @@ function normalizeProductCode(code) {
 
 function getStockImageForCode(code) {
   return STOCK_IMAGE_BY_CODE[normalizeProductCode(code)] ?? '';
+}
+
+function shouldTiltProductImage(code) {
+  return TILTED_IMAGE_CODES.has(normalizeProductCode(code));
 }
 
 function buildProduct(product, fallbackId = createId()) {
@@ -708,12 +713,15 @@ function ProductRow({ product, isEditing, onEdit, onRemove }) {
 
 function PosterCard({ product }) {
   const savings = getSavings(product);
+  const imageClassName = shouldTiltProductImage(product.code)
+    ? 'poster-card__image poster-card__image--tilted'
+    : 'poster-card__image';
 
   return (
     <article className="poster-card">
       <div className="poster-card__media">
         {product.image ? (
-          <img src={product.image} alt={product.desc} />
+          <img className={imageClassName} src={product.image} alt={product.desc} />
         ) : (
           <div className="poster-card__placeholder" aria-hidden="true">
             <ImageIcon size={24} />

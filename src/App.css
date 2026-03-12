@@ -735,11 +735,16 @@
     linear-gradient(180deg, rgba(255, 253, 249, 0.98), rgba(244, 236, 224, 0.98));
 }
 
-.poster-card__media img {
+.poster-card__image {
   width: 100%;
   height: auto;
   aspect-ratio: 1 / 1;
   object-fit: contain;
+}
+
+.poster-card__image--tilted {
+  transform: rotate(45deg);
+  transform-origin: center;
 }
 
 .poster-card__placeholder {
